@@ -1,0 +1,1378 @@
+import React from 'react'
+import { addDoc, collection, onSnapshot, orderBy, query, serverTimestamp, updateDoc, doc } from 'firebase/firestore'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
+import SessionBar from '../components/SessionBar'
+import { useAuth } from '../auth/AuthProvider'
+import { db } from '../firebase'
+
+type Tab = {
+  id: string
+  tableId: string
+  status: 'open' | 'closed'
+  openedAt?: any
+  closedAt?: any
+  total?: number
+  paymentStatus?: 'paid' | 'unpaid'
+  paymentMethod?: 'efectivo' | 'terminal' | 'transferencia' | 'cortesia'
+  tipAmount?: number
+  paidTotal?: number
+  paidAt?: any
+  paidByUid?: string | null
+  paidByName?: string | null
+  peopleCount?: number
+  note?: string
+  tabName?: string
+  isCourtesy?: boolean
+  isVoided?: boolean
+  voidedAt?: any
+  voidedByUid?: string | null
+  createdByUid?: string | null
+  createdByName?: string | null
+  createdByStaffId?: string | null
+}
+
+const tableLabelById: Record<string, string> = {
+  'terraza-01': 'Terraza 01',
+  'terraza-02': 'Terraza 02',
+  'terraza-03': 'Terraza 03',
+  'salon-01': 'Salón 01',
+  'salon-02': 'Salón 02',
+  'salon-03': 'Salón 03',
+  'salon-04': 'Salón 04',
+}
+
+function tableLabel(id: string) {
+  const exact = tableLabelById[id]
+  if (exact) return exact
+  if (id.startsWith('togo-')) {
+    const raw = id.replace('togo-', '').trim()
+    const n = Number(raw)
+    return Number.isFinite(n) && n > 0 ? `Para llevar #${n}` : 'Para llevar'
+  }
+  return id
+}
+
+function tabDisplayLabel(t: Tab) {
+  const name = String((t as any)?.tabName ?? '').trim()
+  if (name) return name
+  return tableLabel(String((t as any)?.tableId ?? ''))
+}
+
+function money(n: number) {
+  return new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }).format(n)
+}
+
+function formatClock(ms: number) {
+  return new Date(ms).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })
+}
+
+export default function CajaPage() {
+  const { user } = useAuth()
+  const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
+
+  React.useEffect(() => {
+    const title = 'Patanegra · Caja'
+    const desc = 'Panel de caja (cobros, cuentas, reportes). Solo personal autorizado.'
+    document.title = title
+
+    const ensureMeta = (key: 'name' | 'property', value: string) => {
+      const selector = key === 'name' ? `meta[name="${value}"]` : `meta[property="${value}"]`
+      let el = document.head.querySelector(selector) as HTMLMetaElement | null
+      if (!el) {
+        el = document.createElement('meta')
+        el.setAttribute(key, value)
+        document.head.appendChild(el)
+      }
+      return el
+    }
+
+    ensureMeta('name', 'description').setAttribute('content', desc)
+    ensureMeta('name', 'robots').setAttribute('content', 'noindex, nofollow')
+    ensureMeta('property', 'og:title').setAttribute('content', title)
+    ensureMeta('property', 'og:description').setAttribute('content', desc)
+  }, [])
+
+  const urlTable = (searchParams.get('mesa') ?? '').trim()
+  const urlReport = (searchParams.get('reporte') ?? '').trim()
+
+  const [tabs, setTabs] = React.useState<Tab[]>([])
+  const [orders, setOrders] = React.useState<any[]>([])
+  const [now, setNow] = React.useState(() => Date.now())
+
+  const [payOpen, setPayOpen] = React.useState(false)
+  const [payTab, setPayTab] = React.useState<Tab | null>(null)
+  const [payMethod, setPayMethod] = React.useState<'efectivo' | 'terminal' | 'transferencia' | 'cortesia'>('efectivo')
+  const [payCourtesy, setPayCourtesy] = React.useState(false)
+  const [tipMode, setTipMode] = React.useState<'none' | 'pct5' | 'pct10' | 'pct15' | 'pct20' | 'custom'>('none')
+  const [tipCustom, setTipCustom] = React.useState('')
+  const [payBusy, setPayBusy] = React.useState(false)
+  const [payMsg, setPayMsg] = React.useState<string | null>(null)
+
+  const moveTabToTable = React.useCallback(
+    async (t: Tab, targetTableId: string, opts?: { silent?: boolean }) => {
+      const silent = Boolean(opts?.silent)
+      const fromTableId = String(t.tableId ?? '')
+      const toTableId = String(targetTableId ?? '').trim()
+      if (!fromTableId || !toTableId || fromTableId === toTableId) return
+
+      const fromLabel = tableLabel(fromTableId)
+      const toLabel = tableLabel(toTableId)
+
+      if (!silent) {
+        const ok = window.confirm(`¿Mover la cuenta "${tabDisplayLabel(t)}" de ${fromLabel} a ${toLabel}?`) 
+        if (!ok) return
+      }
+
+      await updateDoc(doc(db, 'tabs', t.id), { tableId: toTableId, updatedAt: serverTimestamp() })
+
+      const openedAtMs = (t as any)?.openedAt?.toMillis ? (t as any).openedAt.toMillis() : null
+      const creatorUid = (t as any)?.createdByUid ?? null
+      const creatorStaffId = (t as any)?.createdByStaffId ?? null
+
+      const myOrders = orders
+        .filter((o) => String(o?.status ?? '') === 'pending')
+        .filter((o) => String(o?.tableId ?? '') === fromTableId)
+
+      const byTabId = myOrders.filter((o) => {
+        const oid = o?.tabId
+        return oid != null && String(oid) && String(oid) === String(t.id)
+      })
+
+      let legacyMatches: any[] = []
+      if (byTabId.length === 0) {
+        const sameCreatorTabs = tabs
+          .filter((x) => String((x as any)?.status ?? '') === 'open')
+          .filter((x) => String((x as any)?.tableId ?? '') === fromTableId)
+          .filter((x) => (creatorUid ? (x as any)?.createdByUid === creatorUid : true))
+          .filter((x) => (creatorStaffId ? (x as any)?.createdByStaffId === creatorStaffId : true))
+          .map((x) => ({
+            tab: x,
+            openedAtMs: (x as any)?.openedAt?.toMillis ? (x as any).openedAt.toMillis() : null,
+          }))
+          .filter((x) => x.openedAtMs != null)
+          .sort((a, b) => Number(a.openedAtMs) - Number(b.openedAtMs))
+
+        let upperBoundMs: number | null = null
+        if (openedAtMs != null) {
+          const idx = sameCreatorTabs.findIndex((x) => String(x.tab.id) === String(t.id))
+          if (idx >= 0 && idx + 1 < sameCreatorTabs.length) {
+            upperBoundMs = Number(sameCreatorTabs[idx + 1].openedAtMs)
+          }
+        }
+
+        legacyMatches = myOrders
+          .filter((o) => {
+            if (creatorUid && o?.createdByUid && String(o.createdByUid) !== String(creatorUid)) return false
+            if (creatorStaffId && o?.createdByStaffId && String(o.createdByStaffId) !== String(creatorStaffId)) return false
+            return true
+          })
+          .filter((o) => {
+            const createdAtMs = o?.createdAt?.toMillis ? o.createdAt.toMillis() : null
+            if (openedAtMs != null && createdAtMs != null && createdAtMs < openedAtMs) return false
+            if (upperBoundMs != null && createdAtMs != null && createdAtMs >= upperBoundMs) return false
+            return true
+          })
+      }
+
+      const toUpdate = byTabId.length ? byTabId : legacyMatches
+      if (!toUpdate.length) return
+
+      await Promise.all(
+        toUpdate.map((o) =>
+          updateDoc(doc(db, 'orders', o.id), {
+            tableId: toTableId,
+            tableLabel: toLabel,
+            updatedAt: serverTimestamp(),
+          }),
+        ),
+      )
+    },
+    [orders, tabs],
+  )
+
+  const payComputed = React.useMemo(() => {
+    const baseTotal = Number(payTab?.total ?? 0)
+    if (payCourtesy) return { baseTotal, tip: 0, paidTotal: 0 }
+    const pct = tipMode === 'pct5' ? 0.05 : tipMode === 'pct10' ? 0.1 : tipMode === 'pct15' ? 0.15 : tipMode === 'pct20' ? 0.2 : 0
+    const tip =
+      payMethod !== 'terminal'
+        ? 0
+        : tipMode === 'custom'
+          ? Math.max(0, Number(String(tipCustom ?? '').replace(/[^0-9.]/g, '')) || 0)
+          : Math.max(0, Math.round(baseTotal * pct * 100) / 100)
+    const paidTotal = Math.max(0, Math.round((baseTotal + tip) * 100) / 100)
+    return { baseTotal, tip, paidTotal }
+  }, [payCourtesy, payMethod, payTab?.total, tipCustom, tipMode])
+
+  const [reportOpen, setReportOpen] = React.useState<'day' | 'week' | 'month' | null>(null)
+  const [expandedSaleId, setExpandedSaleId] = React.useState<string | null>(null)
+  const [expandedTabId, setExpandedTabId] = React.useState<string | null>(null)
+
+  const initialView = ((): 'dashboard' | 'report' => {
+    const v = String(searchParams.get('v') ?? '').toLowerCase()
+    if (v === 'report' || v === 'reporte') return 'report'
+    return 'dashboard'
+  })()
+  const [view, setView] = React.useState<'dashboard' | 'report'>(initialView)
+
+  React.useEffect(() => {
+    const t = window.setInterval(() => setNow(Date.now()), 15_000)
+    return () => window.clearInterval(t)
+  }, [])
+
+  const extraTables = React.useMemo(() => {
+    try {
+      const raw = window.localStorage.getItem('adminTablesExtra')
+      const data = raw ? (JSON.parse(raw) as any) : {}
+      return {
+        terraza: Array.isArray(data?.terraza) ? data.terraza.map((x: any) => String(x)) : ([] as string[]),
+        salon: Array.isArray(data?.salon) ? data.salon.map((x: any) => String(x)) : ([] as string[]),
+      }
+    } catch {
+      return { terraza: [] as string[], salon: [] as string[] }
+    }
+  }, [now])
+
+  React.useEffect(() => {
+    const v = String(searchParams.get('v') ?? '').toLowerCase()
+    const next: 'dashboard' | 'report' = v === 'report' || v === 'reporte' ? 'report' : 'dashboard'
+    setView(next)
+  }, [searchParams])
+
+  React.useEffect(() => {
+    const q = query(collection(db, 'tabs'), orderBy('openedAt', 'desc'))
+    return onSnapshot(
+      q,
+      (snap) => {
+        const data: Tab[] = snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) }))
+        setTabs(data)
+      },
+      () => {
+        setTabs([])
+      },
+    )
+  }, [])
+
+  React.useEffect(() => {
+    const q = query(collection(db, 'orders'), orderBy('createdAt', 'desc'))
+    return onSnapshot(
+      q,
+      (snap) => {
+        const data = snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) }))
+        setOrders(data)
+      },
+      () => {
+        setOrders([])
+      },
+    )
+  }, [])
+
+  const baseTableIds = Object.keys(tableLabelById)
+  const openTabs = tabs.filter((t) => t.status === 'open')
+  const paidOrLegacyTabs = tabs.filter((t) => t.status === 'closed' && !(t as any)?.isVoided)
+  const pendingKitchen = orders.filter((o) => o.status === 'pending' && o.area === 'kitchen').length
+  const pendingBar = orders.filter((o) => o.status === 'pending' && o.area === 'bar').length
+  const report = React.useMemo(() => {
+    const d = new Date(now)
+    const dayStart = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0, 0).getTime()
+    const weekStartDate = new Date(d)
+    const day = weekStartDate.getDay()
+    const diff = (day + 6) % 7
+    weekStartDate.setDate(weekStartDate.getDate() - diff)
+    weekStartDate.setHours(0, 0, 0, 0)
+    const weekStart = weekStartDate.getTime()
+    const weekEnd = weekStart + 7 * 24 * 60 * 60 * 1000
+    const monthStart = new Date(d.getFullYear(), d.getMonth(), 1, 0, 0, 0, 0).getTime()
+    const monthEnd = new Date(d.getFullYear(), d.getMonth() + 1, 1, 0, 0, 0, 0).getTime()
+
+    let daySum = 0
+    let weekSum = 0
+    let monthSum = 0
+    for (const t of paidOrLegacyTabs) {
+      const paidAtMs = (t as any)?.paidAt?.toMillis ? (t as any).paidAt.toMillis() : null
+      const legacyAtMs = (t as any)?.closedAt?.toMillis ? (t as any).closedAt.toMillis() : null
+      const at = paidAtMs ?? legacyAtMs
+      if (!at) continue
+      const v = paidAtMs ? Number((t as any).paidTotal ?? (t as any).total ?? 0) : Number((t as any).total ?? 0)
+      if (at >= dayStart) daySum += v
+      if (at >= weekStart) weekSum += v
+      if (at >= monthStart) monthSum += v
+    }
+    return { daySum, weekSum, monthSum, dayStart, weekStart, weekEnd, monthStart, monthEnd }
+  }, [paidOrLegacyTabs, now])
+
+  const reportDetails = React.useMemo(() => {
+    const byKey: Record<string, { tabs: Tab[]; sum: number }> = {
+      day: { tabs: [], sum: 0 },
+      week: { tabs: [], sum: 0 },
+      month: { tabs: [], sum: 0 },
+    }
+
+    const compute = (key: 'day' | 'week' | 'month', start: number, end: number) => {
+      const rows = paidOrLegacyTabs
+        .filter((t) => {
+          const paidAtMs = (t as any)?.paidAt?.toMillis ? (t as any).paidAt.toMillis() : null
+          const legacyAtMs = (t as any)?.closedAt?.toMillis ? (t as any).closedAt.toMillis() : null
+          const ms = paidAtMs ?? legacyAtMs
+          return ms != null && ms >= start && ms < end
+        })
+        .sort((a, b) => {
+          const aMs = ((a as any)?.paidAt?.toMillis ? (a as any).paidAt.toMillis() : (a as any)?.closedAt?.toMillis ? (a as any).closedAt.toMillis() : 0) as number
+          const bMs = ((b as any)?.paidAt?.toMillis ? (b as any).paidAt.toMillis() : (b as any)?.closedAt?.toMillis ? (b as any).closedAt.toMillis() : 0) as number
+          return bMs - aMs
+        })
+
+      let sum = 0
+      for (const t of rows) {
+        const isPaid = Boolean((t as any)?.paidAt?.toMillis)
+        sum += isPaid ? Number((t as any).paidTotal ?? (t as any).total ?? 0) : Number((t as any).total ?? 0)
+      }
+      byKey[key] = { tabs: rows, sum }
+    }
+
+    compute('day', report.dayStart, report.dayStart + 24 * 60 * 60 * 1000)
+    compute('week', report.weekStart, report.weekEnd)
+    compute('month', report.monthStart, report.monthEnd)
+    return byKey
+  }, [paidOrLegacyTabs, report])
+
+  const tabOrdersBreakdown = React.useCallback(
+    (t: Tab) => {
+      const tableId = (t as any).tableId
+      const openedAtMs = (t as any)?.openedAt?.toMillis ? (t as any).openedAt.toMillis() : null
+      const paidAtMs = (t as any)?.paidAt?.toMillis ? (t as any).paidAt.toMillis() : null
+      const legacyAtMs = (t as any)?.closedAt?.toMillis ? (t as any).closedAt.toMillis() : null
+      const endMs = paidAtMs ?? legacyAtMs
+
+      const within = (ms: number | null) => {
+        if (ms == null) return false
+        if (openedAtMs != null && ms < openedAtMs) return false
+        if (endMs != null && ms > endMs) return false
+        return true
+      }
+
+      const foodQty = new Map<string, number>()
+      const drinksQty = new Map<string, number>()
+      const foodAmt = new Map<string, number>()
+      const drinksAmt = new Map<string, number>()
+
+      for (const o of orders) {
+        if (!o || o.tableId !== tableId) continue
+        const ms = o?.createdAt?.toMillis ? o.createdAt.toMillis() : null
+        if (!within(ms)) continue
+        const its = Array.isArray(o.items) ? o.items : []
+        const targetQty = o.area === 'bar' ? drinksQty : foodQty
+        const targetAmt = o.area === 'bar' ? drinksAmt : foodAmt
+        for (const it of its) {
+          const name = String(it?.name ?? '').trim()
+          const qty = Number(it?.qty ?? 0)
+          const unitPrice = Number(it?.unitPrice ?? 0)
+          const size = it?.size === 'cm20' ? '20' : it?.size === 'cm30' ? '30' : null
+          const label = size ? `${name} (${size})` : name
+          if (!label || !Number.isFinite(qty) || qty <= 0) continue
+          targetQty.set(label, (targetQty.get(label) ?? 0) + qty)
+          if (Number.isFinite(unitPrice) && unitPrice > 0) {
+            targetAmt.set(label, Math.round(((targetAmt.get(label) ?? 0) + unitPrice * qty) * 100) / 100)
+          }
+        }
+      }
+
+      const toList = (qtyM: Map<string, number>, amtM: Map<string, number>) =>
+        Array.from(qtyM.entries())
+          .map(([name, qty]) => ({ name, qty, amount: Number(amtM.get(name) ?? 0) }))
+          .sort((a, b) => b.amount - a.amount || b.qty - a.qty || a.name.localeCompare(b.name))
+
+      const food = toList(foodQty, foodAmt)
+      const drinks = toList(drinksQty, drinksAmt)
+      const foodTotal = food.reduce((s, x) => s + Number(x.amount ?? 0), 0)
+      const drinksTotal = drinks.reduce((s, x) => s + Number(x.amount ?? 0), 0)
+      return {
+        food,
+        drinks,
+        foodTotal: Math.round(foodTotal * 100) / 100,
+        drinksTotal: Math.round(drinksTotal * 100) / 100,
+      }
+    },
+    [orders],
+  )
+
+  const downloadCsv = React.useCallback((rows: Tab[], filename: string) => {
+    const esc = (v: any) => {
+      const s = String(v ?? '')
+      if (s.includes('"') || s.includes(',') || s.includes('\n')) return `"${s.replaceAll('"', '""')}"`
+      return s
+    }
+    const out: string[] = []
+    out.push(['fecha', 'hora', 'mesa', 'cuenta', 'metodo', 'subtotal_mxn', 'propina_mxn', 'total_mxn'].map(esc).join(','))
+    for (const t of rows) {
+      const dt = (t as any)?.paidAt?.toDate ? (t as any).paidAt.toDate() : (t as any)?.closedAt?.toDate ? (t as any).closedAt.toDate() : null
+      const dateStr = dt ? dt.toLocaleDateString('es-MX') : ''
+      const timeStr = dt ? dt.toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' }) : ''
+      const isPaid = Boolean((t as any)?.paidAt?.toMillis)
+      const subtotal = Number((t as any).total ?? 0)
+      const total = isPaid ? Number((t as any).paidTotal ?? (t as any).total ?? 0) : Number((t as any).total ?? 0)
+      const method = isPaid ? String((t as any).paymentMethod ?? '') : 'legacy'
+      const tip = isPaid ? Number((t as any).tipAmount ?? 0) : 0
+      out.push([
+        dateStr,
+        timeStr,
+        (t as any).tableId ?? '',
+        (t as any).tabName ?? '',
+        method,
+        subtotal.toFixed(2),
+        tip.toFixed(2),
+        total.toFixed(2),
+      ].map(esc).join(','))
+    }
+    const blob = new Blob([out.join('\n')], { type: 'text/csv;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = filename
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    URL.revokeObjectURL(url)
+  }, [])
+
+  const money = React.useCallback((n: number) => {
+    return new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }).format(n)
+  }, [])
+
+  const isActiveStyle = React.useCallback(
+    (active: boolean) => ({
+      borderColor: active ? '#111827' : '#e5e7eb',
+      opacity: active ? 1 : 0.95,
+    }),
+    [],
+  )
+
+  const openTabsByTable: Record<string, Tab[]> = {}
+  for (const t of openTabs) {
+    if (!openTabsByTable[t.tableId]) openTabsByTable[t.tableId] = []
+    openTabsByTable[t.tableId].push(t)
+  }
+
+  const terraceTableIds = React.useMemo(() => {
+    const base = ['terraza-01', 'terraza-02', 'terraza-03']
+    const extra = extraTables.terraza.filter((x: string) => x && !base.includes(x))
+    return [...base, ...extra]
+  }, [extraTables.terraza])
+
+  const salonTableIds = React.useMemo(() => {
+    const base = ['salon-01', 'salon-02', 'salon-03', 'salon-04']
+    const extra = extraTables.salon.filter((x: string) => x && !base.includes(x))
+    return [...base, ...extra]
+  }, [extraTables.salon])
+
+  const takeoutTableIds = Object.keys(openTabsByTable)
+    .filter((id) => id.startsWith('togo-'))
+    .map((id) => ({ id, n: Number(id.replace('togo-', '')) }))
+    .sort((a, b) => (Number.isFinite(a.n) ? a.n : 0) - (Number.isFinite(b.n) ? b.n : 0))
+    .map((x) => x.id)
+
+  const takeoutOpenTabs = takeoutTableIds.flatMap((id) => openTabsByTable[id] ?? [])
+  const takeoutPendingKitchen = orders.filter((o) => o.status === 'pending' && o.area === 'kitchen' && String(o.tableId ?? '').startsWith('togo-')).length
+  const takeoutPendingBar = orders.filter((o) => o.status === 'pending' && o.area === 'bar' && String(o.tableId ?? '').startsWith('togo-')).length
+
+  const payOverlayStyle: React.CSSProperties = {
+    position: 'fixed',
+    inset: 0,
+    zIndex: 90,
+    background: 'rgba(0,0,0,0.35)',
+    display: 'grid',
+    placeItems: 'center',
+    padding: 14,
+  }
+
+  const payPanelStyle: React.CSSProperties = {
+    width: 'min(720px, 100%)',
+    maxHeight: '82vh',
+    overflow: 'auto',
+    background: 'rgba(255,255,255,0.96)',
+    border: '2px solid rgba(0,0,0,0.10)',
+    borderRadius: 18,
+    padding: 14,
+    boxShadow: '0 20px 60px rgba(0,0,0,0.25)',
+  }
+
+  return (
+    <div className="container">
+      <SessionBar
+        title="Caja"
+        showMenuButton={false}
+        rightSlot={
+          user?.role === 'admin' ? (
+            <>
+              <Link className="button secondary" to="/admin?v=dashboard" style={{ borderColor: '#e5e7eb' }}>
+                Dashboard
+              </Link>
+              <Link className="button secondary" to="/admin?v=mesas" style={{ borderColor: '#e5e7eb' }}>
+                Mesas
+              </Link>
+              <button
+                className="button secondary"
+                style={isActiveStyle(true)}
+                onClick={() => {
+                  setView('dashboard')
+                  navigate('/caja?v=dashboard')
+                }}
+              >
+                Caja
+              </button>
+              <button
+                className="button secondary"
+                style={isActiveStyle(view === 'report')}
+                onClick={() => {
+                  setView('report')
+                  navigate('/caja?v=report')
+                }}
+              >
+                Reporte
+              </button>
+              <Link className="button secondary" to="/almacen" style={{ borderColor: '#e5e7eb' }}>
+                Almacén
+              </Link>
+              <Link className="button secondary" to="/menu-config" style={{ borderColor: '#e5e7eb' }}>
+                Menú (Config)
+              </Link>
+              <Link className="button secondary" to="/menu" style={{ borderColor: '#e5e7eb' }}>
+                Menú
+              </Link>
+            </>
+          ) : user?.role === 'gerente' ? (
+            <>
+              <button
+                className="button secondary"
+                style={isActiveStyle(view === 'dashboard')}
+                onClick={() => {
+                  setView('dashboard')
+                  navigate('/caja?v=dashboard')
+                }}
+              >
+                Caja
+              </button>
+              <button
+                className="button secondary"
+                style={isActiveStyle(view === 'report')}
+                onClick={() => {
+                  setView('report')
+                  navigate('/caja?v=report')
+                }}
+              >
+                Reporte
+              </button>
+              <Link className="button secondary" to="/almacen" style={{ borderColor: '#e5e7eb' }}>
+                Almacén
+              </Link>
+              <Link className="button secondary" to="/menu" style={{ borderColor: '#e5e7eb' }}>
+                Menú
+              </Link>
+            </>
+          ) : user?.role === 'caja' ? (
+            <>
+              <button
+                className="button secondary"
+                style={isActiveStyle(view === 'dashboard')}
+                onClick={() => {
+                  setView('dashboard')
+                  navigate('/caja?v=dashboard')
+                }}
+              >
+                Caja
+              </button>
+              <button
+                className="button secondary"
+                style={isActiveStyle(view === 'report')}
+                onClick={() => {
+                  setView('report')
+                  navigate('/caja?v=report')
+                }}
+              >
+                Reporte
+              </button>
+              <Link className="button secondary" to="/menu" style={{ borderColor: '#e5e7eb' }}>
+                Menú
+              </Link>
+            </>
+          ) : null
+        }
+      />
+
+      {view === 'report' ? (
+        <div className="card" style={{ marginBottom: 12 }}>
+          <div style={{ fontWeight: 900 }}>Reporte</div>
+          <div className="muted" style={{ fontSize: 12 }}>Ventas por cierres (tabs cerrados).</div>
+          <div style={{ height: 12 }} />
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
+            <button className="card" style={{ margin: 0, textAlign: 'left', cursor: 'pointer' }} onClick={() => setReportOpen((p) => (p === 'day' ? null : 'day'))}>
+              <div className="muted" style={{ fontSize: 12 }}>Hoy</div>
+              <div style={{ fontWeight: 950, fontSize: 22 }}>{money(report.daySum)}</div>
+            </button>
+            <button className="card" style={{ margin: 0, textAlign: 'left', cursor: 'pointer' }} onClick={() => setReportOpen((p) => (p === 'week' ? null : 'week'))}>
+              <div className="muted" style={{ fontSize: 12 }}>Semana</div>
+              <div style={{ fontWeight: 950, fontSize: 22 }}>{money(report.weekSum)}</div>
+            </button>
+            <button className="card" style={{ margin: 0, textAlign: 'left', cursor: 'pointer' }} onClick={() => setReportOpen((p) => (p === 'month' ? null : 'month'))}>
+              <div className="muted" style={{ fontSize: 12 }}>Mes</div>
+              <div style={{ fontWeight: 950, fontSize: 22 }}>{money(report.monthSum)}</div>
+            </button>
+          </div>
+
+          {reportOpen ? (
+            <>
+              <div style={{ height: 12 }} />
+              <div className="card" style={{ margin: 0 }}>
+                <div className="row" style={{ justifyContent: 'space-between' }}>
+                  <div>
+                    <div style={{ fontWeight: 900 }}>Detalle · {reportOpen === 'day' ? 'Hoy' : reportOpen === 'week' ? 'Semana' : 'Mes'}</div>
+                    <div className="muted" style={{ fontSize: 12 }}>{reportDetails[reportOpen].tabs.length} venta(s)</div>
+                  </div>
+                  <button
+                    className="button secondary"
+                    onClick={() => downloadCsv(reportDetails[reportOpen].tabs, `reporte_caja_${reportOpen}_${new Date(now).toISOString().slice(0, 10)}.csv`)}
+                  >
+                    Descargar CSV
+                  </button>
+                </div>
+
+                <div style={{ height: 12 }} />
+
+                <div style={{ display: 'grid', gap: 8 }}>
+                  {reportDetails[reportOpen].tabs.length === 0 ? <div className="muted">Sin ventas en este rango.</div> : null}
+                  {reportDetails[reportOpen].tabs.slice(0, 200).map((t) => {
+                    const dt = (t as any)?.paidAt?.toDate ? (t as any).paidAt.toDate() : (t as any)?.closedAt?.toDate ? (t as any).closedAt.toDate() : null
+                    const isPaid = Boolean((t as any)?.paidAt?.toMillis)
+                    const subtotal = Number((t as any).total ?? 0)
+                    const tip = isPaid ? Number((t as any).tipAmount ?? 0) : 0
+                    const total = isPaid ? Number((t as any).paidTotal ?? (t as any).total ?? 0) : Number((t as any).total ?? 0)
+                    const method = isPaid ? String((t as any).paymentMethod ?? '') : 'legacy'
+                    const id = String((t as any).id)
+                    const expanded = expandedSaleId === id
+                    const breakdown = expanded ? tabOrdersBreakdown(t) : null
+                    return (
+                      <div
+                        key={id}
+                        className="card"
+                        style={{ margin: 0, padding: 10, cursor: 'pointer' }}
+                        onClick={() => setExpandedSaleId((p) => (p === id ? null : id))}
+                      >
+                        <div className="row" style={{ justifyContent: 'space-between' }}>
+                          <div className="muted" style={{ fontSize: 12 }}>
+                            {(t as any).tableId ?? '—'}{(t as any).tabName ? ` · ${(t as any).tabName}` : ''} · {method}
+                            {dt ? ` · ${dt.toLocaleString('es-MX', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' })}` : ''}
+                          </div>
+                          <div style={{ fontWeight: 950 }}>{money(total)}</div>
+                        </div>
+
+                        <div style={{ height: 6 }} />
+
+                        <div className="row" style={{ justifyContent: 'space-between' }}>
+                          <div className="muted" style={{ fontSize: 12 }}>Consumo</div>
+                          <div style={{ fontWeight: 900 }}>{money(subtotal)}</div>
+                        </div>
+                        <div className="row" style={{ justifyContent: 'space-between' }}>
+                          <div className="muted" style={{ fontSize: 12 }}>Propina</div>
+                          <div style={{ fontWeight: 900 }}>{money(tip)}</div>
+                        </div>
+
+                        {expanded && breakdown ? (
+                          <>
+                            <div style={{ height: 10 }} />
+                            <div className="row" style={{ justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                              <div style={{ flex: 1 }}>
+                                <div className="muted" style={{ fontSize: 12, marginBottom: 6 }}>Alimentos</div>
+                                {breakdown.food.length === 0 ? <div className="muted" style={{ fontSize: 12 }}>Sin items.</div> : null}
+                                <div style={{ display: 'grid', gap: 4 }}>
+                                  {breakdown.food.slice(0, 30).map((x) => (
+                                    <div key={x.name} className="row" style={{ justifyContent: 'space-between' }}>
+                                      <div>{x.name}</div>
+                                      <div className="row" style={{ gap: 10, justifyContent: 'flex-end' }}>
+                                        <div style={{ fontWeight: 900 }}>x{x.qty}</div>
+                                        <div style={{ fontWeight: 950 }}>{x.amount ? money(Number(x.amount)) : '—'}</div>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                                <div style={{ height: 6 }} />
+                                <div className="row" style={{ justifyContent: 'space-between' }}>
+                                  <div className="muted" style={{ fontSize: 12 }}>Total alimentos</div>
+                                  <div style={{ fontWeight: 950 }}>{breakdown.foodTotal ? money(Number(breakdown.foodTotal)) : '—'}</div>
+                                </div>
+                              </div>
+
+                              <div style={{ width: 14 }} />
+
+                              <div style={{ flex: 1 }}>
+                                <div className="muted" style={{ fontSize: 12, marginBottom: 6 }}>Bebidas</div>
+                                {breakdown.drinks.length === 0 ? <div className="muted" style={{ fontSize: 12 }}>Sin items.</div> : null}
+                                <div style={{ display: 'grid', gap: 4 }}>
+                                  {breakdown.drinks.slice(0, 30).map((x) => (
+                                    <div key={x.name} className="row" style={{ justifyContent: 'space-between' }}>
+                                      <div>{x.name}</div>
+                                      <div className="row" style={{ gap: 10, justifyContent: 'flex-end' }}>
+                                        <div style={{ fontWeight: 900 }}>x{x.qty}</div>
+                                        <div style={{ fontWeight: 950 }}>{x.amount ? money(Number(x.amount)) : '—'}</div>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                                <div style={{ height: 6 }} />
+                                <div className="row" style={{ justifyContent: 'space-between' }}>
+                                  <div className="muted" style={{ fontSize: 12 }}>Total bebidas</div>
+                                  <div style={{ fontWeight: 950 }}>{breakdown.drinksTotal ? money(Number(breakdown.drinksTotal)) : '—'}</div>
+                                </div>
+                              </div>
+                            </div>
+                          </>
+                        ) : null}
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            </>
+          ) : null}
+        </div>
+      ) : (
+        <div className="card" style={{ marginBottom: 12 }}>
+          <div className="row" style={{ justifyContent: 'space-between' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, width: '100%' }}>
+              <div>
+                <div style={{ fontWeight: 800 }}>Mesas</div>
+                <div className="muted" style={{ fontSize: 12 }}>
+                  Cuentas abiertas: <strong style={{ color: '#111827' }}>{openTabs.length}</strong>
+                </div>
+                <div className="muted" style={{ fontSize: 12 }}>
+                  Órdenes pendientes: <strong style={{ color: '#111827' }}>{pendingKitchen}</strong> cocina · <strong style={{ color: '#111827' }}>{pendingBar}</strong> barra
+                </div>
+              </div>
+
+              <div>
+                <div style={{ fontWeight: 800 }}>Para llevar</div>
+                <div className="muted" style={{ fontSize: 12 }}>
+                  Cuentas abiertas: <strong style={{ color: '#111827' }}>{takeoutOpenTabs.length}</strong>
+                </div>
+                <div className="muted" style={{ fontSize: 12 }}>
+                  Órdenes pendientes: <strong style={{ color: '#111827' }}>{takeoutPendingKitchen}</strong> cocina · <strong style={{ color: '#111827' }}>{takeoutPendingBar}</strong> barra
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div style={{ height: 10 }} />
+
+          <div className="row" style={{ justifyContent: 'flex-end' }}>
+            <button
+              className="button secondary"
+              onClick={() => {
+                const areaRaw = String(window.prompt('Área: terraza o salon', 'terraza') ?? '')
+                  .trim()
+                  .toLowerCase()
+                const area = areaRaw === 'salon' || areaRaw === 'salón' ? 'salon' : 'terraza'
+                const id = String(window.prompt('ID de mesa (ej. terraza-05 o salon-05)', '') ?? '').trim()
+                if (!id) return
+                try {
+                  const raw = window.localStorage.getItem('adminTablesExtra')
+                  const data = raw ? (JSON.parse(raw) as any) : {}
+                  const next = {
+                    terraza: Array.isArray(data?.terraza) ? data.terraza.map((x: any) => String(x)) : [],
+                    salon: Array.isArray(data?.salon) ? data.salon.map((x: any) => String(x)) : [],
+                  }
+                  const list = area === 'salon' ? next.salon : next.terraza
+                  if (!list.includes(id)) list.push(id)
+                  window.localStorage.setItem('adminTablesExtra', JSON.stringify(next))
+                  setNow(Date.now())
+                } catch {
+                  // ignore
+                }
+              }}
+            >
+              + Agregar mesa
+            </button>
+          </div>
+        </div>
+      )}
+
+      {view === 'dashboard' ? (
+        <>
+          <div className="tableGrid">
+            {terraceTableIds.map((tableId) => {
+              const tableTabs = openTabsByTable[tableId] ?? []
+              const oldestOpenedAtMs =
+                tableTabs.length
+                  ? tableTabs.reduce<number | null>((min, t) => {
+                      const ms = (t as any)?.openedAt?.toMillis ? (t as any).openedAt.toMillis() : null
+                      if (ms == null) return min
+                      if (min == null) return ms
+                      return Math.min(min, ms)
+                    }, null)
+                  : null
+              const isOpen = tableTabs.length > 0
+              return (
+                <div
+                  key={tableId}
+                  className={`tableCard${isOpen ? ' open' : ''}`}
+                  style={{ borderColor: isOpen ? 'rgba(245, 158, 11, 0.85)' : undefined }}
+                >
+                  <div className="row" style={{ justifyContent: 'space-between' }}>
+                    <div>
+                      <div style={{ fontWeight: 900 }}>{tableLabel(tableId)}</div>
+                      <div className="muted" style={{ fontSize: 12 }}>
+                        {isOpen ? (
+                          <>
+                            <strong style={{ color: '#111827' }}>{tableTabs.length}</strong> cuenta(s)
+                            {oldestOpenedAtMs != null ? ` · ${formatClock(oldestOpenedAtMs)}` : ''}
+                          </>
+                        ) : (
+                          'Libre'
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div style={{ height: 10 }} />
+
+                  <div style={{ display: 'grid', gap: 10 }}>
+                    {tableTabs.map((t) => (
+                      <div key={t.id} className="tabRow">
+                        <div>
+                          <div style={{ fontWeight: 900 }}>{t.tabName ? t.tabName : 'Cuenta'}</div>
+                          <div className="muted" style={{ fontSize: 12 }}>
+                            {t.createdByName ? `Mesero: ${t.createdByName}${t.createdByStaffId ? ` (${t.createdByStaffId})` : ''}` : '—'}
+                          </div>
+                          <div className="muted" style={{ fontSize: 12 }}>
+                            Consumo: <strong style={{ color: '#111827' }}>{money(Number(t.total ?? 0))}</strong>
+                          </div>
+                        </div>
+
+                        <div className="row" style={{ gap: 8, justifyContent: 'flex-end' }}>
+                          <button
+                            className="button secondary"
+                            onClick={() => setExpandedTabId((p) => (p === t.id ? null : t.id))}
+                          >
+                            Ver consumo
+                          </button>
+                          <button
+                            className="button secondary"
+                            onClick={async () => {
+                              const example = 'salon-02'
+                              const target = String(window.prompt('Mover cuenta a mesa (ej. salon-02 o terraza-03)', example) ?? '').trim()
+                              if (!target) return
+                              try {
+                                await moveTabToTable(t, target)
+                              } catch {
+                                // ignore
+                              }
+                            }}
+                          >
+                            Cambiar mesa
+                          </button>
+                          <button
+                            className="button secondary"
+                            onClick={() => {
+                              setPayMsg(null)
+                              setTipMode('none')
+                              setTipCustom('')
+                              setPayMethod('efectivo')
+                              setPayCourtesy(false)
+                              setPayTab({ ...t })
+                              setPayOpen(true)
+                            }}
+                          >
+                            Cobrar
+                          </button>
+                        </div>
+
+                        {expandedTabId === t.id ? (
+                          <div style={{ gridColumn: '1 / -1', marginTop: 10 }}>
+                            <div className="card" style={{ margin: 0, padding: 10 }}>
+                              {(() => {
+                                const breakdown = tabOrdersBreakdown(t)
+                                return (
+                                  <div className="row" style={{ justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                                    <div style={{ flex: 1 }}>
+                                      <div className="muted" style={{ fontSize: 12, marginBottom: 6 }}>Alimentos</div>
+                                      {breakdown.food.length === 0 ? <div className="muted" style={{ fontSize: 12 }}>Sin items.</div> : null}
+                                      <div style={{ display: 'grid', gap: 4 }}>
+                                        {breakdown.food.slice(0, 30).map((x) => (
+                                          <div key={x.name} className="row" style={{ justifyContent: 'space-between' }}>
+                                            <div>{x.name}</div>
+                                            <div className="row" style={{ gap: 10, justifyContent: 'flex-end' }}>
+                                              <div style={{ fontWeight: 900 }}>x{x.qty}</div>
+                                              <div style={{ fontWeight: 950 }}>{x.amount ? money(Number(x.amount)) : '—'}</div>
+                                            </div>
+                                          </div>
+                                        ))}
+                                      </div>
+                                      <div style={{ height: 6 }} />
+                                      <div className="row" style={{ justifyContent: 'space-between' }}>
+                                        <div className="muted" style={{ fontSize: 12 }}>Total alimentos</div>
+                                        <div style={{ fontWeight: 950 }}>{breakdown.foodTotal ? money(Number(breakdown.foodTotal)) : '—'}</div>
+                                      </div>
+                                    </div>
+
+                                    <div style={{ width: 14 }} />
+
+                                    <div style={{ flex: 1 }}>
+                                      <div className="muted" style={{ fontSize: 12, marginBottom: 6 }}>Bebidas</div>
+                                      {breakdown.drinks.length === 0 ? <div className="muted" style={{ fontSize: 12 }}>Sin items.</div> : null}
+                                      <div style={{ display: 'grid', gap: 4 }}>
+                                        {breakdown.drinks.slice(0, 30).map((x) => (
+                                          <div key={x.name} className="row" style={{ justifyContent: 'space-between' }}>
+                                            <div>{x.name}</div>
+                                            <div className="row" style={{ gap: 10, justifyContent: 'flex-end' }}>
+                                              <div style={{ fontWeight: 900 }}>x{x.qty}</div>
+                                              <div style={{ fontWeight: 950 }}>{x.amount ? money(Number(x.amount)) : '—'}</div>
+                                            </div>
+                                          </div>
+                                        ))}
+                                      </div>
+                                      <div style={{ height: 6 }} />
+                                      <div className="row" style={{ justifyContent: 'space-between' }}>
+                                        <div className="muted" style={{ fontSize: 12 }}>Total bebidas</div>
+                                        <div style={{ fontWeight: 950 }}>{breakdown.drinksTotal ? money(Number(breakdown.drinksTotal)) : '—'}</div>
+                                      </div>
+                                    </div>
+                                  </div>
+                                )
+                              })()}
+                            </div>
+                          </div>
+                        ) : null}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+
+          <div style={{ height: 10 }} />
+
+          <div className="tableGrid">
+            {salonTableIds.map((tableId) => {
+              const tableTabs = openTabsByTable[tableId] ?? []
+              const oldestOpenedAtMs =
+                tableTabs.length
+                  ? tableTabs.reduce<number | null>((min, t) => {
+                      const ms = (t as any)?.openedAt?.toMillis ? (t as any).openedAt.toMillis() : null
+                      if (ms == null) return min
+                      if (min == null) return ms
+                      return Math.min(min, ms)
+                    }, null)
+                  : null
+              const isOpen = tableTabs.length > 0
+              return (
+                <div
+                  key={tableId}
+                  className={`tableCard${isOpen ? ' open' : ''}`}
+                  style={{ borderColor: isOpen ? 'rgba(245, 158, 11, 0.85)' : undefined }}
+                >
+                  <div className="row" style={{ justifyContent: 'space-between' }}>
+                    <div>
+                      <div style={{ fontWeight: 900 }}>{tableLabel(tableId)}</div>
+                      <div className="muted" style={{ fontSize: 12 }}>
+                        {isOpen ? (
+                          <>
+                            <strong style={{ color: '#111827' }}>{tableTabs.length}</strong> cuenta(s)
+                            {oldestOpenedAtMs != null ? ` · ${formatClock(oldestOpenedAtMs)}` : ''}
+                          </>
+                        ) : (
+                          'Libre'
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div style={{ height: 10 }} />
+
+                  <div style={{ display: 'grid', gap: 10 }}>
+                    {tableTabs.map((t) => (
+                      <div key={t.id} className="tabRow">
+                        <div>
+                          <div style={{ fontWeight: 900 }}>{t.tabName ? t.tabName : 'Cuenta'}</div>
+                          <div className="muted" style={{ fontSize: 12 }}>
+                            {t.createdByName ? `Mesero: ${t.createdByName}${t.createdByStaffId ? ` (${t.createdByStaffId})` : ''}` : '—'}
+                          </div>
+                          <div className="muted" style={{ fontSize: 12 }}>
+                            Consumo: <strong style={{ color: '#111827' }}>{money(Number(t.total ?? 0))}</strong>
+                          </div>
+                        </div>
+
+                        <div className="row" style={{ gap: 8, justifyContent: 'flex-end' }}>
+                          <button
+                            className="button secondary"
+                            onClick={() => setExpandedTabId((p) => (p === t.id ? null : t.id))}
+                          >
+                            Ver consumo
+                          </button>
+                          <button
+                            className="button secondary"
+                            onClick={() => {
+                              setPayMsg(null)
+                              setTipMode('none')
+                              setTipCustom('')
+                              setPayMethod('efectivo')
+                              setPayCourtesy(false)
+                              setPayTab({ ...t })
+                              setPayOpen(true)
+                            }}
+                          >
+                            Cobrar
+                          </button>
+                        </div>
+
+                        {expandedTabId === t.id ? (
+                          <div style={{ gridColumn: '1 / -1', marginTop: 10 }}>
+                            <div className="card" style={{ margin: 0, padding: 10 }}>
+                              {(() => {
+                                const breakdown = tabOrdersBreakdown(t)
+                                return (
+                                  <div className="row" style={{ justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                                    <div style={{ flex: 1 }}>
+                                      <div className="muted" style={{ fontSize: 12, marginBottom: 6 }}>Alimentos</div>
+                                      {breakdown.food.length === 0 ? <div className="muted" style={{ fontSize: 12 }}>Sin items.</div> : null}
+                                      <div style={{ display: 'grid', gap: 4 }}>
+                                        {breakdown.food.slice(0, 30).map((x) => (
+                                          <div key={x.name} className="row" style={{ justifyContent: 'space-between' }}>
+                                            <div>{x.name}</div>
+                                            <div className="row" style={{ gap: 10, justifyContent: 'flex-end' }}>
+                                              <div style={{ fontWeight: 900 }}>x{x.qty}</div>
+                                              <div style={{ fontWeight: 950 }}>{x.amount ? money(Number(x.amount)) : '—'}</div>
+                                            </div>
+                                          </div>
+                                        ))}
+                                      </div>
+                                      <div style={{ height: 6 }} />
+                                      <div className="row" style={{ justifyContent: 'space-between' }}>
+                                        <div className="muted" style={{ fontSize: 12 }}>Total alimentos</div>
+                                        <div style={{ fontWeight: 950 }}>{breakdown.foodTotal ? money(Number(breakdown.foodTotal)) : '—'}</div>
+                                      </div>
+                                    </div>
+
+                                    <div style={{ width: 14 }} />
+
+                                    <div style={{ flex: 1 }}>
+                                      <div className="muted" style={{ fontSize: 12, marginBottom: 6 }}>Bebidas</div>
+                                      {breakdown.drinks.length === 0 ? <div className="muted" style={{ fontSize: 12 }}>Sin items.</div> : null}
+                                      <div style={{ display: 'grid', gap: 4 }}>
+                                        {breakdown.drinks.slice(0, 30).map((x) => (
+                                          <div key={x.name} className="row" style={{ justifyContent: 'space-between' }}>
+                                            <div>{x.name}</div>
+                                            <div className="row" style={{ gap: 10, justifyContent: 'flex-end' }}>
+                                              <div style={{ fontWeight: 900 }}>x{x.qty}</div>
+                                              <div style={{ fontWeight: 950 }}>{x.amount ? money(Number(x.amount)) : '—'}</div>
+                                            </div>
+                                          </div>
+                                        ))}
+                                      </div>
+                                      <div style={{ height: 6 }} />
+                                      <div className="row" style={{ justifyContent: 'space-between' }}>
+                                        <div className="muted" style={{ fontSize: 12 }}>Total bebidas</div>
+                                        <div style={{ fontWeight: 950 }}>{breakdown.drinksTotal ? money(Number(breakdown.drinksTotal)) : '—'}</div>
+                                      </div>
+                                    </div>
+                                  </div>
+                                )
+                              })()}
+                            </div>
+                          </div>
+                        ) : null}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+
+          <div style={{ height: 14 }} />
+
+          <div className="card" style={{ marginBottom: 12, borderColor: 'rgba(239, 68, 68, 0.35)' }}>
+            <div style={{ fontWeight: 900, marginBottom: 6, fontSize: 13 }}>Para llevar</div>
+            {takeoutTableIds.length === 0 ? (
+              <div className="muted" style={{ fontSize: 12 }}>Sin para llevar.</div>
+            ) : (
+              <div style={{ display: 'grid', gap: 8 }}>
+                {takeoutTableIds.map((tableId) => {
+                  const tableTabs = openTabsByTable[tableId] ?? []
+                  const oldestOpenedAtMs =
+                    tableTabs.length
+                      ? tableTabs.reduce<number | null>((min, t) => {
+                          const ms = (t as any)?.openedAt?.toMillis ? (t as any).openedAt.toMillis() : null
+                          if (ms == null) return min
+                          if (min == null) return ms
+                          return Math.min(min, ms)
+                        }, null)
+                      : null
+
+                  return (
+                    <div key={tableId} style={{ border: '1px solid rgba(239, 68, 68, 0.25)', borderRadius: 12, padding: 10 }}>
+                      <div className="row" style={{ justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                        <div>
+                          <div style={{ fontWeight: 950, fontSize: 13 }}>{tabDisplayLabel(tableTabs[0])}</div>
+                          <div className="muted" style={{ fontSize: 11 }}>
+                            <strong style={{ color: '#111827' }}>{tableTabs.length}</strong> cuenta(s)
+                            {oldestOpenedAtMs != null ? ` · ${formatClock(oldestOpenedAtMs)}` : ''}
+                          </div>
+                        </div>
+                        <div className="muted" style={{ fontSize: 11, textAlign: 'right' }}>{tableId}</div>
+                      </div>
+
+                      <div style={{ height: 8 }} />
+
+                      <div style={{ display: 'grid', gap: 8 }}>
+                        {tableTabs.map((t) => (
+                          <div key={t.id} style={{ borderTop: '1px dashed rgba(0,0,0,0.10)', paddingTop: 8 }}>
+                            <div className="row" style={{ justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
+                              <div style={{ minWidth: 0 }}>
+                                <div style={{ fontWeight: 900, fontSize: 12 }}>{t.tabName ? t.tabName : 'Cuenta'}</div>
+                                <div className="muted" style={{ fontSize: 11 }}>
+                                  {t.createdByName ? `Mesero: ${t.createdByName}${t.createdByStaffId ? ` (${t.createdByStaffId})` : ''}` : '—'}
+                                </div>
+                                <div className="muted" style={{ fontSize: 11 }}>
+                                  Consumo: <strong style={{ color: '#111827' }}>{money(Number(t.total ?? 0))}</strong>
+                                </div>
+                              </div>
+
+                              <div className="row" style={{ gap: 8, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+                                <button
+                                  className="button secondary"
+                                  onClick={() => setExpandedTabId((p) => (p === t.id ? null : t.id))}
+                                >
+                                  Ver consumo
+                                </button>
+                                <button
+                                  className="button secondary"
+                                  onClick={() => {
+                                    setPayMsg(null)
+                                    setTipMode('none')
+                                    setTipCustom('')
+                                    setPayMethod('efectivo')
+                                    setPayCourtesy(false)
+                                    setPayTab({ ...t })
+                                    setPayOpen(true)
+                                  }}
+                                >
+                                  Cobrar
+                                </button>
+                              </div>
+                            </div>
+
+                            {expandedTabId === t.id ? (
+                              <div style={{ marginTop: 10 }}>
+                                <div className="card" style={{ margin: 0, padding: 10 }}>
+                                  {(() => {
+                                    const breakdown = tabOrdersBreakdown(t)
+                                    return (
+                                      <div className="row" style={{ justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                                        <div style={{ flex: 1 }}>
+                                          <div className="muted" style={{ fontSize: 12, marginBottom: 6 }}>Alimentos</div>
+                                          {breakdown.food.length === 0 ? <div className="muted" style={{ fontSize: 12 }}>Sin items.</div> : null}
+                                          <div style={{ display: 'grid', gap: 4 }}>
+                                            {breakdown.food.slice(0, 30).map((x) => (
+                                              <div key={x.name} className="row" style={{ justifyContent: 'space-between' }}>
+                                                <div>{x.name}</div>
+                                                <div className="row" style={{ gap: 10, justifyContent: 'flex-end' }}>
+                                                  <div style={{ fontWeight: 900 }}>x{x.qty}</div>
+                                                  <div style={{ fontWeight: 950 }}>{x.amount ? money(Number(x.amount)) : '—'}</div>
+                                                </div>
+                                              </div>
+                                            ))}
+                                          </div>
+                                          <div style={{ height: 6 }} />
+                                          <div className="row" style={{ justifyContent: 'space-between' }}>
+                                            <div className="muted" style={{ fontSize: 12 }}>Total alimentos</div>
+                                            <div style={{ fontWeight: 950 }}>{breakdown.foodTotal ? money(Number(breakdown.foodTotal)) : '—'}</div>
+                                          </div>
+                                        </div>
+
+                                        <div style={{ width: 14 }} />
+
+                                        <div style={{ flex: 1 }}>
+                                          <div className="muted" style={{ fontSize: 12, marginBottom: 6 }}>Bebidas</div>
+                                          {breakdown.drinks.length === 0 ? <div className="muted" style={{ fontSize: 12 }}>Sin items.</div> : null}
+                                          <div style={{ display: 'grid', gap: 4 }}>
+                                            {breakdown.drinks.slice(0, 30).map((x) => (
+                                              <div key={x.name} className="row" style={{ justifyContent: 'space-between' }}>
+                                                <div>{x.name}</div>
+                                                <div className="row" style={{ gap: 10, justifyContent: 'flex-end' }}>
+                                                  <div style={{ fontWeight: 900 }}>x{x.qty}</div>
+                                                  <div style={{ fontWeight: 950 }}>{x.amount ? money(Number(x.amount)) : '—'}</div>
+                                                </div>
+                                              </div>
+                                            ))}
+                                          </div>
+                                          <div style={{ height: 6 }} />
+                                          <div className="row" style={{ justifyContent: 'space-between' }}>
+                                            <div className="muted" style={{ fontSize: 12 }}>Total bebidas</div>
+                                            <div style={{ fontWeight: 950 }}>{breakdown.drinksTotal ? money(Number(breakdown.drinksTotal)) : '—'}</div>
+                                          </div>
+                                        </div>
+                                      </div>
+                                    )
+                                  })()}
+                                </div>
+                              </div>
+                            ) : null}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+        </>
+      ) : null}
+
+      {payOpen && payTab ? (
+        <div style={payOverlayStyle} onClick={() => (payBusy ? null : setPayOpen(false))}>
+          <div style={payPanelStyle} onClick={(e) => e.stopPropagation()}>
+            <div className="row" style={{ justifyContent: 'space-between' }}>
+              <div>
+                <strong>Cobro</strong>
+                <div className="muted" style={{ fontSize: 12 }}>{tabDisplayLabel(payTab)}</div>
+              </div>
+              <button className="button secondary" disabled={payBusy} onClick={() => setPayOpen(false)}>
+                Cerrar
+              </button>
+            </div>
+
+            <div style={{ height: 10 }} />
+
+            {payMsg ? <div className="muted" style={{ marginBottom: 10 }}>{payMsg}</div> : null}
+
+            <div className="card" style={{ margin: 0 }}>
+              <div className="row" style={{ justifyContent: 'space-between', alignItems: 'flex-end' }}>
+                <div>
+                  <div className="muted" style={{ fontSize: 12 }}>Subtotal</div>
+                  <div style={{ fontWeight: 950, fontSize: 18 }}>{money(payComputed.baseTotal)}</div>
+                </div>
+                <div style={{ textAlign: 'right' }}>
+                  <div className="muted" style={{ fontSize: 12 }}>Total</div>
+                  <div style={{ fontWeight: 950, fontSize: 22 }}>{money(payComputed.paidTotal)}</div>
+                </div>
+              </div>
+
+              <div style={{ height: 10 }} />
+
+              <div className="row" style={{ justifyContent: 'space-between' }}>
+                <div className="muted" style={{ fontSize: 12 }}>Propina</div>
+                <div style={{ fontWeight: 900 }}>{money(payComputed.tip)}</div>
+              </div>
+            </div>
+
+            <div style={{ height: 10 }} />
+
+            <div className="card" style={{ margin: 0 }}>
+              <label className="row" style={{ justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
+                <div>
+                  <div style={{ fontWeight: 900 }}>Cortesía</div>
+                  <div className="muted" style={{ fontSize: 12 }}>Cierra la cuenta sin cobro (total $0).</div>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={payCourtesy}
+                  disabled={payBusy}
+                  onChange={(e) => {
+                    const on = Boolean(e.target.checked)
+                    setPayCourtesy(on)
+                    if (on) {
+                      setPayMethod('cortesia')
+                      setTipMode('none')
+                      setTipCustom('')
+                    } else {
+                      setPayMethod('efectivo')
+                    }
+                  }}
+                />
+              </label>
+            </div>
+
+            <div style={{ height: 10 }} />
+
+            <div style={{ display: 'grid', gap: 6 }}>
+              <div className="muted" style={{ fontSize: 12 }}>Método de pago</div>
+              <select
+                className="input"
+                value={payCourtesy ? 'cortesia' : payMethod}
+                disabled={payBusy || payCourtesy}
+                onChange={(e) => setPayMethod(e.target.value as any)}
+              >
+                <option value="efectivo">Efectivo</option>
+                <option value="terminal">Terminal</option>
+                <option value="transferencia">Transferencia</option>
+              </select>
+            </div>
+
+            <div style={{ height: 10 }} />
+
+            {payMethod === 'terminal' && !payCourtesy ? (
+              <div className="card" style={{ margin: 0 }}>
+                <div className="muted" style={{ fontSize: 12 }}>Propina (solo terminal)</div>
+                <div style={{ height: 8 }} />
+                <div className="row" style={{ gap: 8, justifyContent: 'flex-start', flexWrap: 'wrap' }}>
+                  <button className="button secondary" style={isActiveStyle(tipMode === 'pct5')} onClick={() => setTipMode('pct5')}>5%</button>
+                  <button className="button secondary" style={isActiveStyle(tipMode === 'pct10')} onClick={() => setTipMode('pct10')}>10%</button>
+                  <button className="button secondary" style={isActiveStyle(tipMode === 'pct15')} onClick={() => setTipMode('pct15')}>15%</button>
+                  <button className="button secondary" style={isActiveStyle(tipMode === 'pct20')} onClick={() => setTipMode('pct20')}>20%</button>
+                  <button className="button secondary" style={isActiveStyle(tipMode === 'custom')} onClick={() => setTipMode('custom')}>Otro</button>
+                  <button className="button secondary" style={isActiveStyle(tipMode === 'none')} onClick={() => setTipMode('none')}>Sin</button>
+                </div>
+                {tipMode === 'custom' ? (
+                  <>
+                    <div style={{ height: 10 }} />
+                    <input className="input" inputMode="decimal" placeholder="Propina (MXN)" value={tipCustom} onChange={(e) => setTipCustom(e.target.value)} />
+                  </>
+                ) : null}
+              </div>
+            ) : null}
+
+            <div style={{ height: 12 }} />
+
+            <button
+              className="button"
+              disabled={payBusy}
+              onClick={async () => {
+                const baseTotal = payComputed.baseTotal
+                const tip = payComputed.tip
+                const paidTotal = payComputed.paidTotal
+                const effectiveMethod = payCourtesy ? 'cortesia' : payMethod
+
+                setPayBusy(true)
+                setPayMsg(null)
+                try {
+                  await updateDoc(doc(db, 'tabs', payTab.id), {
+                    total: Number.isFinite(baseTotal) ? baseTotal : 0,
+                    status: 'closed',
+                    closedAt: serverTimestamp(),
+                    paymentStatus: 'paid',
+                    paymentMethod: effectiveMethod,
+                    isCourtesy: payCourtesy,
+                    tipAmount: tip,
+                    paidTotal,
+                    paidAt: serverTimestamp(),
+                    paidByUid: user?.uid ?? null,
+                    paidByName: user?.displayName ?? user?.email ?? null,
+                  })
+                  setPayOpen(false)
+                  setPayTab(null)
+                } catch {
+                  setPayMsg('No se pudo registrar el cobro. Revisa permisos o conexión.')
+                } finally {
+                  setPayBusy(false)
+                }
+              }}
+            >
+              Confirmar cobro
+            </button>
+          </div>
+        </div>
+      ) : null}
+    </div>
+  )
+}

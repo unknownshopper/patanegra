@@ -1,0 +1,155 @@
+rules_version = '2';
+ 
+ service cloud.firestore {
+   match /databases/{database}/documents {
+     function isSignedIn() {
+       return request.auth != null;
+     }
+ 
+     function role() {
+       return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role;
+     }
+ 
+     function isAdmin() {
+       return isSignedIn() && role() == 'admin';
+     }
+ 
+     function isGerente() {
+       return isSignedIn() && role() == 'gerente';
+     }
+ 
+     function isCaja() {
+       return isSignedIn() && role() == 'caja';
+     }
+ 
+     function isMesero() {
+       return isSignedIn() && role() == 'mesero';
+     }
+ 
+     function isAlmacen() {
+       return isSignedIn() && role() == 'almacen';
+     }
+ 
+     function isStaff() {
+       return isAdmin() || isGerente() || isCaja() || isMesero() || isAlmacen();
+     }
+
+     function isNumber(x) {
+       return x is number;
+     }
+
+     function isNonNegativeNumber(x) {
+       return isNumber(x) && x >= 0;
+     }
+
+     function isValidTableId(tableId) {
+       return tableId in [
+         'terraza-01','terraza-02','terraza-03',
+         'salon-01','salon-02','salon-03','salon-04'
+       ];
+     }
+
+     function isTakeoutTableId(tableId) {
+       return tableId is string && tableId.matches('^togo-[0-9]+$');
+     }
+ 
+     match /menuCategories/{id} {
+       allow read: if true;
+       allow create, update, delete: if isAdmin();
+     }
+ 
+     match /menuItems/{id} {
+       allow read: if true;
+       allow create, update, delete: if isAdmin();
+     }
+ 
+     match /users/{uid} {
+       allow read: if isSignedIn() && (request.auth.uid == uid || isAdmin());
+       allow create, update, delete: if isAdmin();
+     }
+
+     match /waiterCalls/{id} {
+       allow read: if isStaff();
+
+       allow create: if
+         request.auth == null &&
+         request.resource.data.keys().hasOnly(['tableId', 'status', 'createdAt']) &&
+         (isValidTableId(request.resource.data.tableId) || isTakeoutTableId(request.resource.data.tableId)) &&
+         request.resource.data.status == 'pending';
+
+       allow update: if isStaff();
+       allow delete: if isAdmin();
+     }
+
+     match /ops/{id} {
+       allow read: if isStaff();
+       allow create, update: if
+         isAdmin() ||
+         isGerente() ||
+         isCaja() ||
+         (
+           isMesero() &&
+           id == 'current' &&
+           request.resource.data.diff(resource.data).changedKeys().hasOnly(['takeoutSeq']) &&
+           request.resource.data.takeoutSeq is number &&
+           request.resource.data.takeoutSeq == (resource.data.takeoutSeq + 1)
+         );
+       allow delete: if false;
+     }
+
+     match /tabs/{id} {
+       allow read: if isStaff();
+       allow create: if isStaff();
+       allow update: if
+         isAdmin() || isGerente() || isCaja() ||
+         (
+           isMesero() &&
+           request.resource.data.diff(resource.data).changedKeys().hasOnly(['total', 'updatedAt']) &&
+           isNonNegativeNumber(request.resource.data.total) &&
+           isNonNegativeNumber(resource.data.total) &&
+           request.resource.data.total >= resource.data.total
+         );
+       allow delete: if false;
+     }
+
+     match /orders/{id} {
+       allow read: if isStaff();
+       allow create: if isMesero() || isCaja() || isGerente() || isAdmin();
+       allow update: if isStaff();
+       allow delete: if isAdmin();
+     }
+
+     match /supplies/{id} {
+       allow read: if isStaff();
+       allow create: if isAdmin();
+
+       allow update: if
+         isAdmin() ||
+         (
+           isAlmacen() &&
+           request.resource.data.diff(resource.data).changedKeys().hasOnly(['stock', 'updatedAt']) &&
+           isNonNegativeNumber(request.resource.data.stock) &&
+           isNonNegativeNumber(resource.data.stock) &&
+           request.resource.data.stock >= resource.data.stock
+         );
+
+       allow delete: if isAdmin();
+     }
+
+     match /inventoryMoves/{id} {
+       allow read: if isStaff();
+       allow create: if
+         isAdmin() ||
+         (
+           isAlmacen() &&
+           request.resource.data.qty is number &&
+           request.resource.data.qty > 0
+         );
+       allow update, delete: if isAdmin();
+     }
+ 
+     match /{document=**} {
+       allow read, write: if false;
+     }
+   }
+ }

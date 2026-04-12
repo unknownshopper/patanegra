@@ -1,0 +1,403 @@
+<!doctype html>
+<html lang="es-MX">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Patanegra · Manual Operativo</title>
+    <meta name="description" content="Manual operativo del sistema Patanegra POS: flujo del día y responsabilidades por rol (Mesero, Caja, Admin/Gerente y Almacén)." />
+    <meta name="robots" content="noindex, nofollow" />
+    <meta name="theme-color" content="#0b1020" />
+
+    <link rel="canonical" href="/manual.html" />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Patanegra · Manual Operativo" />
+    <meta property="og:description" content="Guía práctica para operar Patanegra POS por rol: Mesero, Caja, Admin/Gerente y Almacén." />
+    <meta property="og:image" content="/logo1.png" />
+    <meta property="og:locale" content="es_MX" />
+
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Patanegra · Manual Operativo" />
+    <meta name="twitter:description" content="Guía práctica para operar Patanegra POS por rol: Mesero, Caja, Admin/Gerente y Almacén." />
+    <meta name="twitter:image" content="/logo1.png" />
+    <style>
+      :root {
+        --bg: #0b1020;
+        --card: rgba(255,255,255,0.92);
+        --ink: #0f172a;
+        --muted: rgba(15, 23, 42, 0.70);
+        --line: rgba(15, 23, 42, 0.12);
+        --brand: #111827;
+        --accent: #f59e0b;
+        --danger: #ef4444;
+      }
+      html, body { height: 100%; }
+      body {
+        margin: 0;
+        font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+        background:
+          radial-gradient(1200px 600px at 15% 10%, rgba(245, 158, 11, 0.30), transparent 55%),
+          radial-gradient(900px 500px at 90% 15%, rgba(239, 68, 68, 0.18), transparent 55%),
+          radial-gradient(900px 600px at 40% 90%, rgba(59, 130, 246, 0.20), transparent 55%),
+          var(--bg);
+        color: var(--ink);
+      }
+      a { color: inherit; }
+      .wrap { max-width: 1100px; margin: 0 auto; padding: 20px 14px 40px; }
+      .top {
+        display: grid;
+        gap: 10px;
+        padding: 16px;
+        background: var(--card);
+        border: 1px solid var(--line);
+        border-radius: 18px;
+        box-shadow: 0 18px 55px rgba(0,0,0,0.24);
+      }
+      .title {
+        display: grid;
+        gap: 2px;
+      }
+      h1 { font-size: 22px; margin: 0; letter-spacing: 0.2px; }
+      .subtitle { color: var(--muted); font-size: 13px; }
+      .pillRow { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+      .pill {
+        font-size: 12px;
+        padding: 6px 10px;
+        border-radius: 999px;
+        border: 1px solid var(--line);
+        background: rgba(255,255,255,0.92);
+      }
+      .grid { display: grid; grid-template-columns: repeat(12, 1fr); gap: 12px; margin-top: 12px; }
+      .card {
+        background: var(--card);
+        border: 1px solid var(--line);
+        border-radius: 18px;
+        padding: 14px;
+        box-shadow: 0 14px 45px rgba(0,0,0,0.20);
+      }
+      .card h2 { margin: 0 0 6px; font-size: 16px; }
+      .card h3 { margin: 14px 0 6px; font-size: 14px; }
+      .muted { color: var(--muted); }
+      .small { font-size: 12px; }
+      .ok {
+        display: inline-block;
+        font-size: 12px;
+        padding: 2px 8px;
+        border-radius: 999px;
+        border: 1px solid rgba(34, 197, 94, 0.35);
+        background: rgba(34, 197, 94, 0.10);
+      }
+      .warn {
+        display: inline-block;
+        font-size: 12px;
+        padding: 2px 8px;
+        border-radius: 999px;
+        border: 1px solid rgba(245, 158, 11, 0.38);
+        background: rgba(245, 158, 11, 0.12);
+      }
+      .danger {
+        display: inline-block;
+        font-size: 12px;
+        padding: 2px 8px;
+        border-radius: 999px;
+        border: 1px solid rgba(239, 68, 68, 0.40);
+        background: rgba(239, 68, 68, 0.10);
+      }
+      .cols-12 { grid-column: span 12; }
+      .cols-8 { grid-column: span 8; }
+      .cols-6 { grid-column: span 6; }
+      .cols-4 { grid-column: span 4; }
+      .cols-3 { grid-column: span 3; }
+      ul, ol { margin: 8px 0 0; padding-left: 18px; }
+      li { margin: 6px 0; }
+      .hr { height: 1px; background: var(--line); margin: 12px 0; }
+      .table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 8px;
+        font-size: 13px;
+      }
+      .table th, .table td {
+        border: 1px solid rgba(15, 23, 42, 0.10);
+        padding: 8px;
+        text-align: left;
+      }
+      .table th { background: rgba(255,255,255,0.70); }
+      .callout {
+        border: 1px solid rgba(15, 23, 42, 0.14);
+        border-radius: 14px;
+        padding: 10px;
+        background: rgba(255,255,255,0.75);
+      }
+      .kbd {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+        font-size: 12px;
+        padding: 2px 6px;
+        border-radius: 8px;
+        background: rgba(15, 23, 42, 0.08);
+        border: 1px solid rgba(15, 23, 42, 0.10);
+      }
+      @media (max-width: 920px) {
+        .cols-8, .cols-6, .cols-4, .cols-3 { grid-column: span 12; }
+        .wrap { padding-bottom: 60px; }
+      }
+      @media print {
+        body { background: white; }
+        .top, .card { box-shadow: none; }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <div class="top">
+        <div class="title">
+          <h1>Manual Operativo · Patanegra POS</h1>
+          <div class="subtitle">Guía práctica (sin tecnicismos) para operar el sistema por rol: Mesero, Caja, Almacén y Admin/Gerente.</div>
+        </div>
+        <div class="pillRow">
+          <div class="pill"><strong>Objetivo:</strong> que el flujo de pedidos, entrega, cobro y control de inventario sea consistente.</div>
+          <div class="pill"><strong>Regla de oro:</strong> el mesero <em>levanta y entrega</em>; caja <em>cobra y cierra</em>; almacén <em>controla stock</em>.</div>
+        </div>
+      </div>
+
+      <div class="grid">
+        <div class="card cols-12">
+          <h2>1) Glosario rápido</h2>
+          <table class="table">
+            <thead>
+              <tr>
+                <th>Término</th>
+                <th>Qué significa</th>
+                <th>Quién lo usa</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><strong>Cuenta</strong> (Tab)</td>
+                <td>La cuenta abierta de una mesa o para llevar. Contiene el total acumulado.</td>
+                <td>Mesero / Caja / Admin</td>
+              </tr>
+              <tr>
+                <td><strong>Orden</strong> (Order)</td>
+                <td>Un envío a cocina o barra con artículos. Puede haber muchas órdenes dentro de una cuenta.</td>
+                <td>Mesero / Cocina/Bar (operación) / Admin</td>
+              </tr>
+              <tr>
+                <td><strong>Pendiente</strong></td>
+                <td>Orden aún no entregada.</td>
+                <td>Mesero / Admin</td>
+              </tr>
+              <tr>
+                <td><strong>Entregado</strong></td>
+                <td>Orden marcada como entregada (resuelta).</td>
+                <td>Mesero</td>
+              </tr>
+              <tr>
+                <td><strong>Para llevar</strong></td>
+                <td>Cuenta sin mesa física. Se genera un folio (ej. <span class="kbd">Para llevar #12</span>).</td>
+                <td>Mesero / Caja</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="card cols-12">
+          <h2>2) Flujo ideal del día (resumen)</h2>
+          <ol>
+            <li><strong>Admin/Gerente</strong> inicia operación (ON) al comenzar el turno.</li>
+            <li><strong>Mesero</strong> y/o <strong>Caja</strong> levantan pedidos por mesa o para llevar (según la operación del negocio).</li>
+            <li><strong>Mesero</strong> marca como <strong>Entregado</strong> cada orden cuando se entrega (esto baja los pendientes).</li>
+            <li><strong>Caja</strong> revisa consumo, cobra la cuenta (efectivo/terminal/transferencia/cortesía) y la cierra.</li>
+            <li><strong>Caja</strong> también puede revisar pendientes y ventas para apoyar el flujo en horas pico.</li>
+            <li><strong>Admin/Gerente</strong> supervisa operación, pendientes y ventas; al final del turno valida reportes.</li>
+            <li><strong>Almacén</strong> mantiene stock actualizado (entradas/salidas/ajustes) para no vender sin inventario.</li>
+          </ol>
+        </div>
+
+        <div class="card cols-6">
+          <h2>3) Rol: Mesero</h2>
+          <div class="muted small">El mesero controla el servicio: levantar pedidos, coordinar entregas y mantener las cuentas correctas.</div>
+
+          <h3>3.1 Levantar orden (Mesa)</h3>
+          <ol>
+            <li>Entra a <strong>Menú</strong>.</li>
+            <li>Selecciona la mesa (Terraza o Salón).</li>
+            <li>Agrega productos al carrito.</li>
+            <li>Presiona <strong>Enviar</strong>.</li>
+          </ol>
+          <div class="callout small">
+            <span class="ok">Tip</span>
+            Si una mesa pide otra ronda, solo vuelve a entrar a Menú, elige la misma mesa y manda otra orden. El sistema acumula en la misma cuenta.
+          </div>
+
+          <h3>3.2 Levantar orden (Para llevar)</h3>
+          <ol>
+            <li>Entra a <strong>Menú</strong>.</li>
+            <li>Selecciona <strong>Para llevar</strong>.</li>
+            <li>Captura el <strong>nombre</strong> del cliente (importante para identificar).</li>
+            <li>Agrega productos y presiona <strong>Enviar</strong>.</li>
+          </ol>
+
+          <h3>3.3 Entregar pedidos (Marcar “Entregado”)</h3>
+          <ol>
+            <li>En la vista de Mesero entra a <strong>Pendientes</strong>.</li>
+            <li>Ubica la orden por mesa/para llevar.</li>
+            <li>Cuando la entregues al cliente, presiona <strong>Entregado</strong>.</li>
+          </ol>
+          <div class="callout small">
+            <span class="warn">Importante</span>
+            “Entregado” es la señal para que el tablero de pendientes baje y todo el equipo tenga claridad.
+          </div>
+
+          <h3>3.4 Cambio / juntar mesas (cuentas separadas)</h3>
+          <ol>
+            <li>Pídelo a Caja (o Admin/Caja): se usa la acción <strong>Cambiar mesa</strong> por cuenta.</li>
+            <li>Esto permite tener <strong>2 cuentas en la misma mesa</strong> sin mezclarlas.</li>
+          </ol>
+        </div>
+
+        <div class="card cols-6">
+          <h2>4) Rol: Caja</h2>
+          <div class="muted small">Caja controla cobros, cierre de cuentas y supervisión de consumo por cuenta. También puede apoyar levantando pedidos (mesa y para llevar) cuando se requiera.</div>
+
+          <h3>4.1 Identificar cuentas abiertas</h3>
+          <ul>
+            <li>En <strong>Caja</strong> verás mesas por Terraza/Salón y sección <strong>Para llevar</strong>.</li>
+            <li>Cada mesa puede tener <strong>1 o más cuentas</strong>.</li>
+            <li>Usa <strong>Ver consumo</strong> para confirmar el desglose antes de cobrar.</li>
+          </ul>
+
+          <h3>4.2 Cobrar una cuenta</h3>
+          <ol>
+            <li>En la cuenta, presiona <strong>Cobrar</strong>.</li>
+            <li>Selecciona método: efectivo / terminal / transferencia / cortesía.</li>
+            <li>Confirma total (y propina si aplica).</li>
+            <li>Finaliza. La cuenta cambia a cerrada (se refleja en ventas).</li>
+          </ol>
+
+          <h3>4.2.1 Levantar pedidos (cuando Caja apoya)</h3>
+          <ol>
+            <li>Entra a <strong>Menú</strong> desde Caja.</li>
+            <li>Selecciona la mesa o <strong>Para llevar</strong>.</li>
+            <li>Agrega productos y presiona <strong>Enviar</strong>.</li>
+          </ol>
+          <div class="callout small">
+            <span class="warn">Importante</span>
+            Aunque Caja levante pedidos, la práctica recomendada es que el <strong>Mesero</strong> marque <strong>Entregado</strong> para mantener los pendientes actualizados.
+          </div>
+
+          <h3>4.3 Cambiar mesa (juntar mesas manteniendo cuentas separadas)</h3>
+          <ol>
+            <li>En la cuenta, presiona <strong>Cambiar mesa</strong>.</li>
+            <li>Escribe la mesa destino (ej. <span class="kbd">salon-02</span>).</li>
+            <li>El sistema mueve la cuenta y también las <strong>órdenes pendientes</strong> de esa cuenta a la nueva mesa.</li>
+          </ol>
+          <div class="callout small">
+            <span class="ok">Resultado</span>
+            En la mesa destino verás “2 cuenta(s)”, cada una se cobra por separado.
+          </div>
+
+          <h3>4.4 Agregar mesa extra (si el lugar crece)</h3>
+          <ul>
+            <li>En la parte superior, usa <strong>+ Agregar mesa</strong>.</li>
+            <li>Indica si es <span class="kbd">terraza</span> o <span class="kbd">salon</span> y el id (ej. <span class="kbd">salon-05</span>).</li>
+          </ul>
+          <div class="callout small">
+            <span class="warn">Nota</span>
+            Esto agrega la mesa a la pantalla. No cambia la distribución física: solo ayuda a operar.
+          </div>
+        </div>
+
+        <div class="card cols-6">
+          <h2>5) Rol: Admin / Gerente</h2>
+          <div class="muted small">Admin/Gerente supervisa operación, ventas, pendientes y configuración.</div>
+
+          <h3>5.1 Operación (ON/OFF)</h3>
+          <ul>
+            <li><strong>Iniciar operación</strong>: marca el comienzo del turno. Se usa para el indicador “Ventas al momento (operación)”.</li>
+            <li><strong>Pausar</strong>: opcional si hacen pausa (no siempre necesario).</li>
+            <li><strong>Apagar</strong>: al finalizar el turno para tener un corte claro.</li>
+          </ul>
+
+          <h3>5.2 Tarjetas del Dashboard</h3>
+          <ul>
+            <li><strong>Cuentas abiertas</strong>: cuántas cuentas están activas (aún no cobradas).</li>
+            <li><strong>Órdenes pendientes (Cocina / Barra)</strong>: cuántas órdenes siguen sin entregar.</li>
+            <li><strong>Ventas al momento (operación)</strong>: suma de cuentas cerradas desde que empezó la operación.</li>
+            <li><strong>Ventas hoy / semana / mes</strong>: ventas en esos rangos por cuentas cerradas.</li>
+          </ul>
+
+          <h3>5.3 Configuración del Menú</h3>
+          <ul>
+            <li>Solo Admin ajusta productos, precios y categorías en <strong>Menú (Config)</strong>.</li>
+            <li>Antes de abrir al público: revisa precios y disponibilidad.</li>
+          </ul>
+
+          <h3>5.4 Buenas prácticas</h3>
+          <ul>
+            <li>Si hay pendientes acumulados, confirma con meseros que se estén marcando como <strong>Entregado</strong>.</li>
+            <li>Evita cerrar cuentas si aún hay órdenes pendientes (salvo acuerdo operativo).</li>
+          </ul>
+        </div>
+
+        <div class="card cols-6">
+          <h2>6) Rol: Almacén</h2>
+          <div class="muted small">Almacén mantiene el inventario confiable para operar sin faltantes sorpresa.</div>
+
+          <h3>6.1 Objetivo</h3>
+          <ul>
+            <li>Mantener stock actualizado de insumos (harina, queso, pepperoni, bebidas, etc.).</li>
+            <li>Registrar entradas (compras) y salidas (uso/merma/ajuste).</li>
+          </ul>
+
+          <h3>6.2 Rutina recomendada</h3>
+          <ol>
+            <li>Antes del turno: valida existencias críticas.</li>
+            <li>Durante el turno: registra movimientos relevantes (entradas/ajustes).</li>
+            <li>Fin de día: revisa diferencias y ajusta merma.</li>
+          </ol>
+
+          <div class="callout small">
+            <span class="warn">Importante</span>
+            El inventario es tan bueno como la disciplina: si no se registran movimientos, el stock dejará de ser confiable.
+          </div>
+        </div>
+
+        <div class="card cols-12">
+          <h2>7) Reglas operativas (para evitar errores)</h2>
+          <ul>
+            <li><strong>Siempre</strong> marcar pedidos como <strong>Entregado</strong> cuando se entregan.</li>
+            <li><strong>No</strong> usar “Para llevar” sin nombre: se complica la entrega y el cobro.</li>
+            <li>Si cambian clientes de mesa: usar <strong>Cambiar mesa</strong> por cuenta (no mezclar cuentas).</li>
+            <li>Cobros: si hay duda, abrir <strong>Ver consumo</strong> antes de cobrar.</li>
+            <li>Si un cliente cancela, acordar el proceso (cortesía/ajuste) con gerente/caja.</li>
+          </ul>
+        </div>
+
+        <div class="card cols-12">
+          <h2>8) Preguntas frecuentes</h2>
+          <h3>¿Por qué una mesa dice “2 cuenta(s)?”</h3>
+          <div class="muted">Porque hay dos cuentas separadas en la misma mesa (ej. mesas juntadas, o dos grupos distintos). Se cobran por separado.</div>
+
+          <h3>¿Qué hago si el cliente se cambia de mesa?</h3>
+          <div class="muted">Caja usa <strong>Cambiar mesa</strong> en esa cuenta para moverla. Las órdenes pendientes se mueven con ella.</div>
+
+          <h3>¿Qué pasa si no marco “Entregado”?</h3>
+          <div class="muted">Se acumulan pendientes y se pierde control. Es clave para que el tablero refleje la operación real.</div>
+        </div>
+
+        <div class="card cols-12">
+          <h2>9) Acceso rápido</h2>
+          <div class="callout small">
+            Puedes abrir este manual en:
+            <div style="margin-top:6px"><span class="kbd">/manual.html</span></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="muted small" style="text-align:center; margin-top: 14px;">
+        Patanegra POS · Manual Operativo
+      </div>
+    </div>
+  </body>
+</html>
