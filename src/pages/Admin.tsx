@@ -75,6 +75,67 @@ type MenuImportPayload = {
   }>
 }
 
+const PRESET_MENU_IMPORT_PAYLOAD: MenuImportPayload = {
+  categories: [
+    { name: 'Pizzas', sortOrder: 1, isActive: true },
+    { name: 'Pizza Artesanal', sortOrder: 2, isActive: true },
+    { name: 'Calzone', sortOrder: 3, isActive: true },
+    { name: 'Pasta', sortOrder: 4, isActive: true },
+    { name: 'Pan Artesanal', sortOrder: 5, isActive: true },
+    { name: 'Sodas Italianas y Preparadas', sortOrder: 6, isActive: true },
+    { name: 'Bebidas Naturales', sortOrder: 7, isActive: true },
+    { name: 'Refrescos', sortOrder: 8, isActive: true },
+  ],
+  items: [
+    { category: 'Pizzas', name: 'Pepperoni', prices: { cm20: 130, cm30: 175 }, sortOrder: 1, isActive: true },
+    { category: 'Pizzas', name: 'Hawaiana', prices: { cm20: 130, cm30: 175 }, sortOrder: 2, isActive: true },
+    { category: 'Pizzas', name: 'Pata negra', prices: { cm20: 155, cm30: 220 }, sortOrder: 3, isActive: true },
+    { category: 'Pizzas', name: 'Don Rafa', prices: { cm20: 155, cm30: 220 }, sortOrder: 4, isActive: true },
+    { category: 'Pizzas', name: 'Familia', prices: { cm20: 150, cm30: 195 }, sortOrder: 5, isActive: true },
+    { category: 'Pizzas', name: 'Pepcham', prices: { cm20: 145, cm30: 180 }, sortOrder: 6, isActive: true },
+    { category: 'Pizzas', name: 'Serrano', prices: { cm20: 170, cm30: 245 }, sortOrder: 7, isActive: true },
+    { category: 'Pizzas', name: 'Gaucho', prices: { cm20: 150, cm30: 200 }, sortOrder: 8, isActive: true },
+    { category: 'Pizzas', name: 'Hongo', prices: { cm20: 140, cm30: 180 }, sortOrder: 9, isActive: true },
+
+    { category: 'Pizza Artesanal', name: 'Margarita', prices: { cm20: 140, cm30: 180 }, sortOrder: 1, isActive: true },
+    { category: 'Pizza Artesanal', name: 'Aloha', prices: { cm20: 155, cm30: 195 }, sortOrder: 2, isActive: true },
+    { category: 'Pizza Artesanal', name: 'Vegetariana', prices: { cm20: 150, cm30: 200 }, sortOrder: 3, isActive: true },
+    { category: 'Pizza Artesanal', name: 'Tex mex', prices: { cm20: 150, cm30: 200 }, sortOrder: 4, isActive: true },
+    { category: 'Pizza Artesanal', name: 'Carnicera', prices: { cm20: 135, cm30: 185 }, sortOrder: 5, isActive: true },
+    { category: 'Pizza Artesanal', name: 'Benedella', prices: { cm20: 145, cm30: 190 }, sortOrder: 6, isActive: true },
+    { category: 'Pizza Artesanal', name: 'Delux', prices: { cm20: 160, cm30: 220 }, sortOrder: 7, isActive: true },
+    { category: 'Pizza Artesanal', name: 'Quesos', prices: { cm20: 130, cm30: 175 }, sortOrder: 8, isActive: true },
+    { category: 'Pizza Artesanal', name: 'Parrillera', prices: { cm20: 160, cm30: 210 }, sortOrder: 9, isActive: true },
+
+    { category: 'Calzone', name: 'Peppecham', price: 130, sortOrder: 1, isActive: true },
+    { category: 'Calzone', name: 'Alfredo', price: 130, sortOrder: 2, isActive: true },
+
+    { category: 'Pasta', name: 'Pasta del Día', price: 120, sortOrder: 1, isActive: true },
+
+    { category: 'Pan Artesanal', name: 'Pan con ajo', price: 55, sortOrder: 1, isActive: true },
+    { category: 'Pan Artesanal', name: 'Pan con champiñones', price: 65, sortOrder: 2, isActive: true },
+    { category: 'Pan Artesanal', name: 'Pan combinados', price: 75, sortOrder: 3, isActive: true },
+
+    { category: 'Sodas Italianas y Preparadas', name: 'Soda de fresa', price: 60, sortOrder: 1, isActive: true },
+    { category: 'Sodas Italianas y Preparadas', name: 'Soda de mora', price: 60, sortOrder: 2, isActive: true },
+    { category: 'Sodas Italianas y Preparadas', name: 'Soda de manzana', price: 60, sortOrder: 3, isActive: true },
+    { category: 'Sodas Italianas y Preparadas', name: 'Limonada Eléctrica', price: 60, sortOrder: 4, isActive: true },
+    { category: 'Sodas Italianas y Preparadas', name: 'Mojito azul', price: 70, sortOrder: 5, isActive: true },
+    { category: 'Sodas Italianas y Preparadas', name: 'Flotante', price: 70, sortOrder: 6, isActive: true },
+
+    { category: 'Bebidas Naturales', name: 'Agua de temporada', price: 40, sortOrder: 1, isActive: true },
+    { category: 'Bebidas Naturales', name: 'Fresa con limón', price: 40, sortOrder: 2, isActive: true },
+    { category: 'Bebidas Naturales', name: 'Jamaica con vainilla', price: 40, sortOrder: 3, isActive: true },
+    { category: 'Bebidas Naturales', name: 'Té negro frío', price: 40, sortOrder: 4, isActive: true },
+
+    { category: 'Refrescos', name: 'Coca cola / Coca cola light', price: 40, sortOrder: 1, isActive: true },
+    { category: 'Refrescos', name: 'Sidral Mundet', price: 40, sortOrder: 2, isActive: true },
+    { category: 'Refrescos', name: 'Fresca', price: 40, sortOrder: 3, isActive: true },
+    { category: 'Refrescos', name: 'Agua Mineral', price: 35, sortOrder: 4, isActive: true },
+    { category: 'Refrescos', name: 'Agua Natural', price: 25, sortOrder: 5, isActive: true },
+  ],
+}
+
 export default function AdminPage() {
   const { user } = useAuth()
   const navigate = useNavigate()
@@ -1285,10 +1346,21 @@ export default function AdminPage() {
         <div className="card">
           <div className="row" style={{ justifyContent: 'space-between' }}>
             <strong>Importar carta (JSON)</strong>
-            <button
-              className="button"
-              disabled={importBusy}
-              onClick={async () => {
+            <div className="row" style={{ gap: 8 }}>
+              <button
+                className="button secondary"
+                disabled={importBusy}
+                onClick={() => {
+                  setImportMsg(null)
+                  setImportJson(JSON.stringify(PRESET_MENU_IMPORT_PAYLOAD, null, 2))
+                }}
+              >
+                Cargar carta (precios)
+              </button>
+              <button
+                className="button"
+                disabled={importBusy}
+                onClick={async () => {
                 setImportMsg(null)
                 let payload: MenuImportPayload
                 try {
@@ -1372,10 +1444,11 @@ export default function AdminPage() {
                 } finally {
                   setImportBusy(false)
                 }
-              }}
-            >
-              Importar / Actualizar
-            </button>
+                }}
+              >
+                Importar / Actualizar
+              </button>
+            </div>
           </div>
 
           {importMsg ? <div className="muted" style={{ marginTop: 8 }}>{importMsg}</div> : null}
