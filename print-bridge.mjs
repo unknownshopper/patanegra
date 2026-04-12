@@ -226,7 +226,10 @@ function receiptText(tab) {
   const paidAtStr = formatDateTime(paidAtMs)
 
   const lines = []
-  lines.push('PATANEGRA')
+  lines.push('EL PATA NEGRA VILLA')
+  lines.push('TEL: 9935140855')
+  lines.push('Atletismo 114 Velódromo Deportiva')
+  lines.push('Vhsa Tabasco CP 86189')
   lines.push('TICKET DE PAGO')
   lines.push('--------------------------------')
   lines.push(mesa)
