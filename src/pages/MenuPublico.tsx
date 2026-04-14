@@ -153,7 +153,12 @@ export default function MenuPublicoPage() {
   const [confirmAddToExistingTab, setConfirmAddToExistingTab] = useState(false)
 
   const isStaff = Boolean(user?.role)
-  const canTakeOrders = user?.role === 'mesero' || user?.role === 'caja' || user?.role === 'gerente' || user?.role === 'admin'
+  const canTakeOrders =
+    user?.role === 'mesero' ||
+    user?.role === 'caja' ||
+    user?.role === 'gerente' ||
+    user?.role === 'piso' ||
+    user?.role === 'admin'
 
   const allowDemo =
     typeof window !== 'undefined' &&
@@ -490,7 +495,18 @@ export default function MenuPublicoPage() {
     )
   }, [])
 
-  const staffHomePath = user?.role === 'mesero' ? '/mesero' : user?.role === 'almacen' ? '/almacen' : user?.role === 'caja' ? '/caja' : user?.role === 'gerente' ? '/caja' : user?.role === 'admin' ? '/admin' : null
+  const staffHomePath =
+    user?.role === 'mesero'
+      ? '/mesero'
+      : user?.role === 'almacen'
+        ? '/almacen'
+        : user?.role === 'caja'
+          ? '/caja'
+          : user?.role === 'gerente'
+            ? '/caja'
+            : user?.role === 'admin' || user?.role === 'piso'
+              ? '/admin'
+              : null
 
   const sectionPalette = (categoryId: string, idx: number) => {
     const byId: Record<string, { bg: string; band: string; ink: string }> = {

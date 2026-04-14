@@ -40,6 +40,7 @@ export default function LoginPage() {
     if (user.role === 'gerente') return '/caja'
     if (user.role === 'caja') return '/caja'
     if (user.role === 'almacen') return '/almacen'
+    if (user.role === 'piso') return '/admin'
     return '/admin'
   }, [user?.role])
 

@@ -939,7 +939,7 @@ export default function AdminPage() {
               <div className="muted" style={{ fontSize: 12 }}>Órdenes pendientes (Barra)</div>
               <div style={{ fontWeight: 950, fontSize: 22 }}>{pendingBar}</div>
             </div>
-            {user?.role === 'admin' ? (
+            {user?.role === 'admin' || user?.role === 'piso' ? (
               <div className="card" style={{ margin: 0 }}>
                 <div className="muted" style={{ fontSize: 12 }}>Pendientes</div>
                 <button

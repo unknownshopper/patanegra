@@ -18,6 +18,10 @@ rules_version = '2';
        return isSignedIn() && role() == 'gerente';
      }
  
+     function isPiso() {
+       return isSignedIn() && role() == 'piso';
+     }
+ 
      function isCaja() {
        return isSignedIn() && role() == 'caja';
      }
@@ -31,7 +35,7 @@ rules_version = '2';
      }
  
      function isStaff() {
-       return isAdmin() || isGerente() || isCaja() || isMesero() || isAlmacen();
+       return isAdmin() || isGerente() || isPiso() || isCaja() || isMesero() || isAlmacen();
      }
 
      function isNumber(x) {
@@ -101,7 +105,7 @@ rules_version = '2';
        allow read: if isStaff();
        allow create: if isStaff();
        allow update: if
-         isAdmin() || isGerente() || isCaja() ||
+         isAdmin() || isGerente() || isPiso() || isCaja() ||
          (
            isMesero() &&
            request.resource.data.diff(resource.data).changedKeys().hasOnly(['total', 'updatedAt']) &&
@@ -116,7 +120,7 @@ rules_version = '2';
        allow read: if isStaff();
        allow create: if isMesero() || isCaja() || isGerente() || isAdmin();
        allow update: if isStaff();
-       allow delete: if isAdmin();
+       allow delete: if isAdmin() || isPiso();
      }
 
      match /supplies/{id} {

@@ -99,6 +99,8 @@ export default function CajaPage() {
   const [payTab, setPayTab] = React.useState<Tab | null>(null)
   const [payMethod, setPayMethod] = React.useState<'efectivo' | 'terminal' | 'transferencia' | 'cortesia'>('efectivo')
   const [payCourtesy, setPayCourtesy] = React.useState(false)
+  const [payCourtesyPct, setPayCourtesyPct] = React.useState<30 | 50 | 100>(100)
+  const [payCourtesyName, setPayCourtesyName] = React.useState('')
   const [tipMode, setTipMode] = React.useState<'none' | 'pct5' | 'pct10' | 'pct15' | 'pct20' | 'custom'>('none')
   const [tipCustom, setTipCustom] = React.useState('')
   const [payBusy, setPayBusy] = React.useState(false)
@@ -188,17 +190,20 @@ export default function CajaPage() {
 
   const payComputed = React.useMemo(() => {
     const baseTotal = Number(payTab?.total ?? 0)
-    if (payCourtesy) return { baseTotal, tip: 0, paidTotal: 0 }
+    const courtesyPct = payCourtesy ? Number(payCourtesyPct) : 0
+    const courtesyAmount =
+      courtesyPct > 0 ? Math.max(0, Math.round((baseTotal * courtesyPct) / 100 * 100) / 100) : 0
+    const netBaseTotal = Math.max(0, Math.round((baseTotal - courtesyAmount) * 100) / 100)
     const pct = tipMode === 'pct5' ? 0.05 : tipMode === 'pct10' ? 0.1 : tipMode === 'pct15' ? 0.15 : tipMode === 'pct20' ? 0.2 : 0
     const tip =
-      payMethod !== 'terminal'
+      (payMethod !== 'terminal' && payMethod !== 'transferencia') || payCourtesy
         ? 0
         : tipMode === 'custom'
           ? Math.max(0, Number(String(tipCustom ?? '').replace(/[^0-9.]/g, '')) || 0)
-          : Math.max(0, Math.round(baseTotal * pct * 100) / 100)
-    const paidTotal = Math.max(0, Math.round((baseTotal + tip) * 100) / 100)
-    return { baseTotal, tip, paidTotal }
-  }, [payCourtesy, payMethod, payTab?.total, tipCustom, tipMode])
+          : Math.max(0, Math.round(netBaseTotal * pct * 100) / 100)
+    const paidTotal = Math.max(0, Math.round((netBaseTotal + tip) * 100) / 100)
+    return { baseTotal, courtesyPct, courtesyAmount, netBaseTotal, tip, paidTotal }
+  }, [payCourtesy, payCourtesyPct, payMethod, payTab?.total, tipCustom, tipMode])
 
   const [reportOpen, setReportOpen] = React.useState<'day' | 'week' | 'month' | null>(null)
   const [expandedSaleId, setExpandedSaleId] = React.useState<string | null>(null)
@@ -872,6 +877,8 @@ export default function CajaPage() {
                               setTipCustom('')
                               setPayMethod('efectivo')
                               setPayCourtesy(false)
+                              setPayCourtesyPct(100)
+                              setPayCourtesyName('')
                               setPayTab({ ...t })
                               setPayOpen(true)
                             }}
@@ -1005,12 +1012,29 @@ export default function CajaPage() {
                           </button>
                           <button
                             className="button secondary"
+                            onClick={async () => {
+                              const example = 'mesa-02'
+                              const target = String(window.prompt('Mover cuenta a mesa (ej. mesa-02)', example) ?? '').trim()
+                              if (!target) return
+                              try {
+                                await moveTabToTable(t, target)
+                              } catch {
+                                // ignore
+                              }
+                            }}
+                          >
+                            Cambiar mesa
+                          </button>
+                          <button
+                            className="button secondary"
                             onClick={() => {
                               setPayMsg(null)
                               setTipMode('none')
                               setTipCustom('')
                               setPayMethod('efectivo')
                               setPayCourtesy(false)
+                              setPayCourtesyPct(100)
+                              setPayCourtesyName('')
                               setPayTab({ ...t })
                               setPayOpen(true)
                             }}
@@ -1147,6 +1171,8 @@ export default function CajaPage() {
                                     setTipCustom('')
                                     setPayMethod('efectivo')
                                     setPayCourtesy(false)
+                                    setPayCourtesyPct(100)
+                                    setPayCourtesyName('')
                                     setPayTab({ ...t })
                                     setPayOpen(true)
                                   }}
@@ -1255,6 +1281,15 @@ export default function CajaPage() {
 
               <div style={{ height: 10 }} />
 
+              {payCourtesy ? (
+                <div className="row" style={{ justifyContent: 'space-between' }}>
+                  <div className="muted" style={{ fontSize: 12 }}>Cortesía ({payComputed.courtesyPct}%)</div>
+                  <div style={{ fontWeight: 900 }}>-{money(payComputed.courtesyAmount)}</div>
+                </div>
+              ) : null}
+
+              {payCourtesy ? <div style={{ height: 6 }} /> : null}
+
               <div className="row" style={{ justifyContent: 'space-between' }}>
                 <div className="muted" style={{ fontSize: 12 }}>Propina</div>
                 <div style={{ fontWeight: 900 }}>{money(payComputed.tip)}</div>
@@ -1267,7 +1302,7 @@ export default function CajaPage() {
               <label className="row" style={{ justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
                 <div>
                   <div style={{ fontWeight: 900 }}>Cortesía</div>
-                  <div className="muted" style={{ fontSize: 12 }}>Cierra la cuenta sin cobro (total $0).</div>
+                  <div className="muted" style={{ fontSize: 12 }}>Aplicar descuento por cortesía.</div>
                 </div>
                 <input
                   type="checkbox"
@@ -1277,7 +1312,7 @@ export default function CajaPage() {
                     const on = Boolean(e.target.checked)
                     setPayCourtesy(on)
                     if (on) {
-                      setPayMethod('cortesia')
+                      if (payCourtesyPct === 100) setPayMethod('cortesia')
                       setTipMode('none')
                       setTipCustom('')
                     } else {
@@ -1286,6 +1321,60 @@ export default function CajaPage() {
                   }}
                 />
               </label>
+
+              {payCourtesy ? (
+                <>
+                  <div style={{ height: 10 }} />
+                  <div className="muted" style={{ fontSize: 12 }}>Descuento</div>
+                  <div style={{ height: 8 }} />
+                  <div className="row" style={{ gap: 8, justifyContent: 'flex-start', flexWrap: 'wrap' }}>
+                    <button
+                      className="button secondary"
+                      style={isActiveStyle(payCourtesyPct === 30)}
+                      disabled={payBusy}
+                      onClick={() => {
+                        setPayCourtesyPct(30)
+                        if (payMethod === 'cortesia') setPayMethod('efectivo')
+                      }}
+                    >
+                      30%
+                    </button>
+                    <button
+                      className="button secondary"
+                      style={isActiveStyle(payCourtesyPct === 50)}
+                      disabled={payBusy}
+                      onClick={() => {
+                        setPayCourtesyPct(50)
+                        if (payMethod === 'cortesia') setPayMethod('efectivo')
+                      }}
+                    >
+                      50%
+                    </button>
+                    <button
+                      className="button secondary"
+                      style={isActiveStyle(payCourtesyPct === 100)}
+                      disabled={payBusy}
+                      onClick={() => {
+                        setPayCourtesyPct(100)
+                        setPayMethod('cortesia')
+                      }}
+                    >
+                      100%
+                    </button>
+                  </div>
+
+                  <div style={{ height: 10 }} />
+                  <div className="muted" style={{ fontSize: 12 }}>Nombre (a quién se da la cortesía)</div>
+                  <div style={{ height: 6 }} />
+                  <input
+                    className="input"
+                    placeholder="Ej. Cortesía para Juan"
+                    value={payCourtesyName}
+                    disabled={payBusy}
+                    onChange={(e) => setPayCourtesyName(e.target.value)}
+                  />
+                </>
+              ) : null}
             </div>
 
             <div style={{ height: 10 }} />
@@ -1294,8 +1383,8 @@ export default function CajaPage() {
               <div className="muted" style={{ fontSize: 12 }}>Método de pago</div>
               <select
                 className="input"
-                value={payCourtesy ? 'cortesia' : payMethod}
-                disabled={payBusy || payCourtesy}
+                value={payCourtesy && payCourtesyPct === 100 ? 'cortesia' : payMethod}
+                disabled={payBusy || (payCourtesy && payCourtesyPct === 100)}
                 onChange={(e) => setPayMethod(e.target.value as any)}
               >
                 <option value="efectivo">Efectivo</option>
@@ -1306,9 +1395,9 @@ export default function CajaPage() {
 
             <div style={{ height: 10 }} />
 
-            {payMethod === 'terminal' && !payCourtesy ? (
+            {(payMethod === 'terminal' || payMethod === 'transferencia') && !payCourtesy ? (
               <div className="card" style={{ margin: 0 }}>
-                <div className="muted" style={{ fontSize: 12 }}>Propina (solo terminal)</div>
+                <div className="muted" style={{ fontSize: 12 }}>Propina</div>
                 <div style={{ height: 8 }} />
                 <div className="row" style={{ gap: 8, justifyContent: 'flex-start', flexWrap: 'wrap' }}>
                   <button className="button secondary" style={isActiveStyle(tipMode === 'pct5')} onClick={() => setTipMode('pct5')}>5%</button>
@@ -1336,7 +1425,13 @@ export default function CajaPage() {
                 const baseTotal = payComputed.baseTotal
                 const tip = payComputed.tip
                 const paidTotal = payComputed.paidTotal
-                const effectiveMethod = payCourtesy ? 'cortesia' : payMethod
+                const courtesyName = String(payCourtesyName ?? '').trim()
+                if (payCourtesy && !courtesyName) {
+                  setPayMsg('Ingresa el nombre de a quién se le da la cortesía.')
+                  return
+                }
+
+                const effectiveMethod = payCourtesy && payCourtesyPct === 100 ? 'cortesia' : payMethod
 
                 setPayBusy(true)
                 setPayMsg(null)
@@ -1348,6 +1443,9 @@ export default function CajaPage() {
                     paymentStatus: 'paid',
                     paymentMethod: effectiveMethod,
                     isCourtesy: payCourtesy,
+                    courtesyPercent: payCourtesy ? payCourtesyPct : 0,
+                    courtesyAmount: payCourtesy ? Number(payComputed.courtesyAmount ?? 0) : 0,
+                    courtesyName: payCourtesy ? courtesyName : null,
                     tipAmount: tip,
                     paidTotal,
                     paidAt: serverTimestamp(),
