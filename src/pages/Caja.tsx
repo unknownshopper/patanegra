@@ -1,5 +1,5 @@
 import React from 'react'
-import { addDoc, collection, onSnapshot, orderBy, query, serverTimestamp, updateDoc, doc } from 'firebase/firestore'
+import { addDoc, collection, getDocs, onSnapshot, orderBy, query, serverTimestamp, updateDoc, doc, where, writeBatch } from 'firebase/firestore'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import SessionBar from '../components/SessionBar'
 import { useAuth } from '../auth/AuthProvider'
@@ -1354,6 +1354,28 @@ export default function CajaPage() {
                     paidByUid: user?.uid ?? null,
                     paidByName: user?.displayName ?? user?.email ?? null,
                   })
+
+                  try {
+                    const snap = await getDocs(query(collection(db, 'orders'), where('tabId', '==', payTab.id)))
+                    if (snap.size) {
+                      const batch = writeBatch(db)
+                      for (const d of snap.docs) {
+                        const o = d.data() as any
+                        const status = String(o?.status ?? '')
+                        if (status === 'resolved') continue
+                        batch.update(doc(db, 'orders', d.id), {
+                          status: 'resolved',
+                          resolvedAt: serverTimestamp(),
+                          resolvedByUid: user?.uid ?? null,
+                          resolvedByName: user?.displayName ?? user?.email ?? null,
+                        })
+                      }
+                      await batch.commit()
+                    }
+                  } catch {
+                    // If resolving orders fails, the payment is still registered. Pending orders may still appear until resolved manually.
+                  }
+
                   setPayOpen(false)
                   setPayTab(null)
                 } catch {
