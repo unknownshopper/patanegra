@@ -31,24 +31,19 @@ type Tab = {
   createdByStaffId?: string | null
 }
 
-const tableLabelById: Record<string, string> = {
-  'terraza-01': 'Terraza 01',
-  'terraza-02': 'Terraza 02',
-  'terraza-03': 'Terraza 03',
-  'salon-01': 'Salón 01',
-  'salon-02': 'Salón 02',
-  'salon-03': 'Salón 03',
-  'salon-04': 'Salón 04',
-}
-
 function tableLabel(id: string) {
-  const exact = tableLabelById[id]
-  if (exact) return exact
   if (id.startsWith('togo-')) {
     const raw = id.replace('togo-', '').trim()
     const n = Number(raw)
     return Number.isFinite(n) && n > 0 ? `Para llevar #${n}` : 'Para llevar'
   }
+  if (id.startsWith('mesa-')) {
+    const raw = id.replace('mesa-', '').trim()
+    const n = Number(raw)
+    return Number.isFinite(n) && n > 0 ? `Mesa ${n}` : id
+  }
+  const n = Number(id)
+  if (Number.isFinite(n) && n > 0) return `Mesa ${n}`
   return id
 }
 
@@ -268,7 +263,7 @@ export default function CajaPage() {
     )
   }, [])
 
-  const baseTableIds = Object.keys(tableLabelById)
+  const baseTableIds = Array.from({ length: 10 }, (_, i) => `mesa-${String(i + 1).padStart(2, '0')}`)
   const openTabs = tabs.filter((t) => t.status === 'open')
   const paidOrLegacyTabs = tabs.filter((t) => t.status === 'closed' && !(t as any)?.isVoided)
   const pendingKitchen = orders.filter((o) => o.status === 'pending' && o.area === 'kitchen').length

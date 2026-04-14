@@ -9,8 +9,10 @@ import { getAuth, signInWithEmailAndPassword } from 'firebase/auth'
 import {
   collection,
   doc,
+  getDocs,
   onSnapshot,
   query,
+  runTransaction,
   serverTimestamp,
   updateDoc,
   where,
@@ -122,22 +124,109 @@ function money(n) {
 }
 
 function tableLabel(id) {
-  const map = {
-    'terraza-01': 'Terraza 01',
-    'terraza-02': 'Terraza 02',
-    'terraza-03': 'Terraza 03',
-    'salon-01': 'Salón 01',
-    'salon-02': 'Salón 02',
-    'salon-03': 'Salón 03',
-    'salon-04': 'Salón 04',
+  const s = String(id)
+  if (s.startsWith('mesa-')) {
+    const raw = s.replace('mesa-', '').trim()
+    const n = Number(raw)
+    if (Number.isFinite(n) && n > 0) return `Mesa ${n}`
   }
-  if (map[id]) return map[id]
+  const n = Number(s)
+  if (Number.isFinite(n) && n > 0) return `Mesa ${n}`
   if (String(id).startsWith('togo-')) {
     const raw = String(id).replace('togo-', '').trim()
     const n = Number(raw)
     return Number.isFinite(n) && n > 0 ? `Para llevar #${n}` : 'Para llevar'
   }
   return String(id)
+}
+
+function formatFolioDate(ms) {
+  const d = new Date(ms)
+  const dd = String(d.getDate()).padStart(2, '0')
+  const mm = String(d.getMonth() + 1).padStart(2, '0')
+  const yy = String(d.getFullYear()).slice(-2)
+  return `${dd}/${mm}/${yy}`
+}
+
+function formatFolioKey(ms) {
+  const d = new Date(ms)
+  const yyyy = String(d.getFullYear())
+  const mm = String(d.getMonth() + 1).padStart(2, '0')
+  const dd = String(d.getDate()).padStart(2, '0')
+  return `${yyyy}${mm}${dd}`
+}
+
+async function nextDailyFolio({ db }) {
+  const nowMs = Date.now()
+  const key = formatFolioKey(nowMs)
+  const labelDate = formatFolioDate(nowMs)
+  const ref = doc(db, 'ops', 'current')
+  const seq = await runTransaction(db, async (tx) => {
+    const snap = await tx.get(ref)
+    const data = snap.exists() ? snap.data() : {}
+    const prevKey = String(data?.billSeqKey ?? '')
+    const prevSeq = Number(data?.billSeq ?? 0)
+    const next = prevKey === key ? prevSeq + 1 : 1
+    tx.set(ref, { billSeqKey: key, billSeq: next }, { merge: true })
+    return next
+  })
+  const seqStr = String(seq).padStart(3, '0')
+  return `${labelDate}-${seqStr}`
+}
+
+function consumptionTicketText({ tab, orders, folio }) {
+  const tableId = String(tab?.tableId ?? '')
+  const mesa = tableLabel(tableId)
+  const name = String(tab?.tabName ?? '').trim()
+
+  const lines = []
+  lines.push('EL PATA NEGRA VILLA')
+  lines.push('TEL: 9935140855')
+  lines.push('Atletismo 114 Velódromo Deportiva')
+  lines.push('Vhsa Tabasco CP 86189')
+  lines.push('CUENTA / CONSUMO')
+  lines.push(`FOLIO: ${folio}`)
+  lines.push('--------------------------------')
+  lines.push(mesa)
+  if (name) lines.push(name)
+  lines.push('--------------------------------')
+
+  const qtyByLabel = new Map()
+  const amtByLabel = new Map()
+  for (const o of orders) {
+    if (!o || String(o.tableId ?? '') !== tableId) continue
+    if (String(o.tabId ?? '') !== String(tab?.id ?? '')) continue
+    const its = Array.isArray(o.items) ? o.items : []
+    for (const it of its) {
+      const nm = String(it?.name ?? '').trim()
+      const qty = Number(it?.qty ?? 0)
+      if (!nm || !Number.isFinite(qty) || qty <= 0) continue
+      const size = it?.size === 'cm20' ? '20' : it?.size === 'cm30' ? '30' : null
+      const label = size ? `${nm} (${size})` : nm
+      const unit = Number(it?.unitPrice ?? 0)
+      qtyByLabel.set(label, (qtyByLabel.get(label) ?? 0) + qty)
+      if (Number.isFinite(unit) && unit > 0) {
+        amtByLabel.set(label, Math.round(((amtByLabel.get(label) ?? 0) + unit * qty) * 100) / 100)
+      }
+    }
+  }
+  const rows = Array.from(qtyByLabel.entries())
+    .map(([label, qty]) => ({ label, qty: Number(qty), amount: Number(amtByLabel.get(label) ?? 0) }))
+    .sort((a, b) => b.amount - a.amount || b.qty - a.qty || a.label.localeCompare(b.label))
+
+  for (const r of rows) {
+    lines.push(`${padRight(`x${r.qty}`, 4)} ${r.label}`.slice(0, 32))
+    if (Number.isFinite(r.amount) && r.amount > 0) {
+      lines.push(`     ${money(r.amount)}`.slice(0, 32))
+    }
+  }
+
+  const subtotal = rows.reduce((s, r) => s + Number(r.amount ?? 0), 0)
+  lines.push('--------------------------------')
+  lines.push(`TOTAL: ${money(Math.round(subtotal * 100) / 100)}`)
+  lines.push('')
+  lines.push('')
+  return lines.join('\n')
 }
 
 function formatClock(ms) {
@@ -302,6 +391,7 @@ async function main() {
   const printerReceipt = env('PRINTER_RECEIPT')
   const dryRun = env('DRY_RUN', '0') === '1'
   const processBacklog = env('PROCESS_BACKLOG', '0') === '1'
+  const printReceiptOnPaid = env('PRINT_RECEIPT_ON_PAID', '0') === '1'
   const lpRaw = env('LP_RAW', '1') === '1'
   const escpos = env('ESCPOS', '1') === '1'
   const escposCut = env('ESCPOS_CUT', '1') === '1'
@@ -338,9 +428,11 @@ async function main() {
 
   const inFlightOrders = new Set()
   const inFlightReceipts = new Set()
+  const inFlightBills = new Set()
   const recentlyFailedOrders = new Map()
   let unsubOrders = null
   let unsubReceipts = null
+  let unsubBills = null
 
   let ordersBootstrapped = false
   let receiptsBootstrapped = false
@@ -425,12 +517,13 @@ async function main() {
     },
   )
 
-  const qTabs = query(collection(db, 'tabs'), where('paymentStatus', '==', 'paid'))
+  if (printReceiptOnPaid) {
+    const qTabs = query(collection(db, 'tabs'), where('paymentStatus', '==', 'paid'))
 
-  console.log('[print-bridge] Subscribing receipts (tabs paymentStatus==paid)…')
+    console.log('[print-bridge] Subscribing receipts (tabs paymentStatus==paid)…')
 
-  unsubReceipts = onSnapshot(
-    qTabs,
+    unsubReceipts = onSnapshot(
+      qTabs,
     async (snap) => {
       console.log(
         `[print-bridge] Receipts snapshot: size=${snap.size} changes=${snap.docChanges().length} fromCache=${snap.metadata.fromCache}`,
@@ -500,6 +593,75 @@ async function main() {
     (err) => {
       console.error('[print-bridge] Snapshot error (receipts)', err)
     },
+    )
+  } else {
+    console.log('[print-bridge] Receipt printing disabled (PRINT_RECEIPT_ON_PAID=0)')
+  }
+
+  const qOpenTabs = query(collection(db, 'tabs'), where('status', '==', 'open'))
+  console.log('[print-bridge] Subscribing bills (tabs status==open)…')
+  unsubBills = onSnapshot(
+    qOpenTabs,
+    async (snap) => {
+      const changes = snap.docChanges()
+      if (changes.length) {
+        console.log(
+          '[print-bridge] Bill changes:',
+          changes.map((c) => `${c.type}:${c.doc.id}`).join(', '),
+        )
+      }
+
+      const docs = changes
+        .filter((c) => c.type === 'added' || c.type === 'modified')
+        .map((c) => ({ id: c.doc.id, ...(c.doc.data() ?? {}) }))
+
+      for (const t of docs) {
+        const id = String(t?.id ?? '')
+        if (!id) continue
+        if (!t?.billRequestedAt?.toMillis && t?.billRequestedAt == null) continue
+        if (t?.billPrintedAt?.toMillis || t?.billPrintedAt != null) continue
+        if (inFlightBills.has(id)) continue
+
+        inFlightBills.add(id)
+        try {
+          const printer = outPrinters.receipt
+          const folio = await nextDailyFolio({ db })
+          const ordersSnap = await getDocs(query(collection(db, 'orders'), where('tabId', '==', id)))
+          const tab = t
+          const orders = ordersSnap.docs.map((d) => ({ id: d.id, ...(d.data() ?? {}) }))
+          const text = consumptionTicketText({ tab, orders, folio })
+          await printViaLp({ printer, text, dryRun })
+          if (!dryRun) {
+            await updateDoc(doc(db, 'tabs', id), {
+              billPrintedAt: serverTimestamp(),
+              billPrintedBy: auth.currentUser?.uid ?? null,
+              billPrintedDevice: deviceName,
+              billPrintedPrinter: printer,
+              billFolio: folio,
+            })
+          }
+          console.log(`[print-bridge] Bill printed ${id} -> ${printer} folio=${folio}`)
+        } catch (e) {
+          console.error('[print-bridge] Error printing bill', t?.id, e)
+          if (!dryRun) {
+            try {
+              await updateDoc(doc(db, 'tabs', String(t?.id ?? '')), {
+                billPrintErrorAt: serverTimestamp(),
+                billPrintErrorMsg: String((e && e.message) || e || 'bill print error'),
+                billPrintErrorDevice: deviceName,
+              })
+            } catch {
+              // ignore
+            }
+          }
+        } finally {
+          inFlightBills.delete(id)
+        }
+      }
+    },
+    (err) => {
+      console.error('[print-bridge] Snapshot error (bills)', err)
+    },
   )
 
   const shutdown = () => {
@@ -507,6 +669,7 @@ async function main() {
     try {
       if (unsubOrders) unsubOrders()
       if (unsubReceipts) unsubReceipts()
+      if (unsubBills) unsubBills()
     } catch {
       // ignore
     }

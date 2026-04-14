@@ -360,13 +360,16 @@ export default function MenuPublicoPage() {
   )
 
   const tableLabelById: Record<string, string> = {
-    'terraza-01': 'Terraza 01',
-    'terraza-02': 'Terraza 02',
-    'terraza-03': 'Terraza 03',
-    'salon-01': 'Salón 01',
-    'salon-02': 'Salón 02',
-    'salon-03': 'Salón 03',
-    'salon-04': 'Salón 04',
+    'mesa-01': 'Mesa 1',
+    'mesa-02': 'Mesa 2',
+    'mesa-03': 'Mesa 3',
+    'mesa-04': 'Mesa 4',
+    'mesa-05': 'Mesa 5',
+    'mesa-06': 'Mesa 6',
+    'mesa-07': 'Mesa 7',
+    'mesa-08': 'Mesa 8',
+    'mesa-09': 'Mesa 9',
+    'mesa-10': 'Mesa 10',
   }
 
   const allowedTables = Object.keys(tableLabelById)

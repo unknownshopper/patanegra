@@ -34,16 +34,19 @@ type Order = {
 }
 
 function tableLabel(tableId: string) {
-  const m: Record<string, string> = {
-    'terraza-01': 'Terraza 01',
-    'terraza-02': 'Terraza 02',
-    'terraza-03': 'Terraza 03',
-    'salon-01': 'Salón 01',
-    'salon-02': 'Salón 02',
-    'salon-03': 'Salón 03',
-    'salon-04': 'Salón 04',
+  if (tableId.startsWith('togo-')) {
+    const raw = tableId.replace('togo-', '').trim()
+    const n = Number(raw)
+    return Number.isFinite(n) && n > 0 ? `Para llevar #${n}` : 'Para llevar'
   }
-  return m[tableId] ?? tableId
+  if (tableId.startsWith('mesa-')) {
+    const raw = tableId.replace('mesa-', '').trim()
+    const n = Number(raw)
+    return Number.isFinite(n) && n > 0 ? `Mesa ${n}` : tableId
+  }
+  const n = Number(tableId)
+  if (Number.isFinite(n) && n > 0) return `Mesa ${n}`
+  return tableId
 }
 
 export default function MeseroPage() {
@@ -128,6 +131,15 @@ export default function MeseroPage() {
   const topPending = pending[0] ?? null
 
   const openTabs = tabs.filter((t) => t.status === 'open')
+  const openTabByTableId = React.useMemo(() => {
+    const m = new Map<string, any>()
+    for (const t of openTabs) {
+      const tableId = String((t as any)?.tableId ?? '').trim()
+      if (!tableId) continue
+      m.set(tableId, t)
+    }
+    return m
+  }, [openTabs])
   const myStaffId = String((user as any)?.staffId ?? '').trim()
   const pendingOrders = orders.filter((o) => o.status !== 'resolved')
 
@@ -298,9 +310,27 @@ export default function MeseroPage() {
                       )}
                     </div>
                   </div>
-                  <Link className="button secondary" to={`/menu?mesa=${t.tableId}`}>
-                    Agregar pedido
-                  </Link>
+                  <div className="row" style={{ gap: 8 }}>
+                    {t.source === 'tab' ? (
+                      <button
+                        className="button secondary"
+                        onClick={async () => {
+                          const tab = openTabByTableId.get(String(t.tableId))
+                          if (!tab?.id) return
+                          await updateDoc(doc(db, 'tabs', String(tab.id)), {
+                            billRequestedAt: serverTimestamp(),
+                            billRequestedByUid: user?.uid ?? null,
+                            billRequestedByName: user?.displayName ?? user?.email ?? null,
+                          })
+                        }}
+                      >
+                        Pedir cuenta
+                      </button>
+                    ) : null}
+                    <Link className="button secondary" to={`/menu?mesa=${t.tableId}`}>
+                      Agregar pedido
+                    </Link>
+                  </div>
                 </div>
 
                 {String(t.tableId).startsWith('togo-') ? (
