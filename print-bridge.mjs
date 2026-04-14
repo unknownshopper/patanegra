@@ -9,6 +9,7 @@ import { getAuth, signInWithEmailAndPassword } from 'firebase/auth'
 import {
   collection,
   doc,
+  getDoc,
   getDocs,
   onSnapshot,
   query,
@@ -22,6 +23,7 @@ import { initializeFirestore } from 'firebase/firestore'
 const execFileAsync = promisify(execFile)
 
 const printerDeviceCache = new Map()
+const tabFolioCache = new Map()
 
 async function resolvePrinterDevice(printerName) {
   const key = String(printerName ?? '').trim()
@@ -142,10 +144,10 @@ function tableLabel(id) {
 
 function formatFolioDate(ms) {
   const d = new Date(ms)
-  const dd = String(d.getDate()).padStart(2, '0')
   const mm = String(d.getMonth() + 1).padStart(2, '0')
+  const dd = String(d.getDate()).padStart(2, '0')
   const yy = String(d.getFullYear()).slice(-2)
-  return `${dd}/${mm}/${yy}`
+  return `${yy}/${mm}/${dd}`
 }
 
 function formatFolioKey(ms) {
@@ -185,7 +187,7 @@ function consumptionTicketText({ tab, orders, folio }) {
   lines.push('Atletismo 114 Velódromo Deportiva')
   lines.push('Vhsa Tabasco CP 86189')
   lines.push('CUENTA / CONSUMO')
-  lines.push(`FOLIO: ${folio}`)
+  if (folio) lines.push(`FOLIO: ${folio}`)
   lines.push('--------------------------------')
   lines.push(mesa)
   if (name) lines.push(name)
@@ -251,13 +253,36 @@ function padRight(s, n) {
   return str + ' '.repeat(n - str.length)
 }
 
-function ticketText(order) {
+function cuentaShort(id) {
+  const s = String(id ?? '').trim()
+  if (!s) return ''
+  return s.slice(0, 8)
+}
+
+async function tabFolioMaybe({ db, tabId }) {
+  const id = String(tabId ?? '').trim()
+  if (!id) return ''
+  const cached = tabFolioCache.get(id)
+  if (typeof cached === 'string') return cached
+  try {
+    const snap = await getDoc(doc(db, 'tabs', id))
+    const folio = String((snap.data() ?? {})?.billFolio ?? '').trim()
+    tabFolioCache.set(id, folio)
+    return folio
+  } catch {
+    return ''
+  }
+}
+
+async function ticketText(order, { db }) {
   const area = String(order?.area ?? '').toLowerCase() === 'bar' ? 'BARRA' : 'COCINA'
   const createdAtMs = order?.createdAt?.toMillis ? order.createdAt.toMillis() : Date.now()
   const time = formatClock(createdAtMs)
   const mesa = tableLabel(String(order?.tableId ?? ''))
   const tableId = String(order?.tableId ?? '')
   const tabId = String(order?.tabId ?? '')
+  const cuenta = cuentaShort(tabId)
+  const folio = await tabFolioMaybe({ db, tabId })
   const by = String(order?.createdByName ?? '').trim()
 
   const lines = []
@@ -270,7 +295,8 @@ function ticketText(order) {
     if (label && label !== tableId) lines.push(label)
   }
   if (by) lines.push(`Mesero: ${by}`)
-  if (tabId) lines.push(`Cuenta: ${tabId.slice(0, 8)}`)
+  if (folio) lines.push(`Folio: ${folio}`)
+  else if (cuenta) lines.push(`Cuenta: ${cuenta}`)
   lines.push('--------------------------------')
 
   const items = Array.isArray(order?.items) ? order.items : []
@@ -479,7 +505,7 @@ async function main() {
         try {
           const area = String(o?.area ?? '').toLowerCase() === 'bar' ? 'bar' : 'kitchen'
           const printer = area === 'bar' ? outPrinters.bar : outPrinters.kitchen
-          const text = ticketText(o)
+          const text = await ticketText(o, { db })
 
           await printViaLp({ printer, text, dryRun })
 
@@ -639,6 +665,7 @@ async function main() {
               billPrintedPrinter: printer,
               billFolio: folio,
             })
+            tabFolioCache.set(id, folio)
           }
           console.log(`[print-bridge] Bill printed ${id} -> ${printer} folio=${folio}`)
         } catch (e) {
