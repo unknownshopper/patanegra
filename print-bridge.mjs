@@ -176,6 +176,42 @@ async function nextDailyFolio({ db }) {
   return `${labelDate}-${seqStr}`
 }
 
+async function ensureTabFolio({ db, tabId }) {
+  const id = String(tabId ?? '').trim()
+  if (!id) return ''
+
+  const cached = tabFolioCache.get(id)
+  if (typeof cached === 'string' && cached) return cached
+
+  const tabRef = doc(db, 'tabs', id)
+  const opsRef = doc(db, 'ops', 'current')
+
+  const folio = await runTransaction(db, async (tx) => {
+    const tabSnap = await tx.get(tabRef)
+    const existing = String((tabSnap.data() ?? {})?.billFolio ?? '').trim()
+    if (existing) return existing
+
+    const nowMs = Date.now()
+    const key = formatFolioKey(nowMs)
+    const labelDate = formatFolioDate(nowMs)
+
+    const opsSnap = await tx.get(opsRef)
+    const ops = opsSnap.exists() ? opsSnap.data() : {}
+    const prevKey = String(ops?.billSeqKey ?? '')
+    const prevSeq = Number(ops?.billSeq ?? 0)
+    const next = prevKey === key ? prevSeq + 1 : 1
+    tx.set(opsRef, { billSeqKey: key, billSeq: next }, { merge: true })
+
+    const nextStr = String(next).padStart(3, '0')
+    const generated = `${labelDate}-${nextStr}`
+    tx.set(tabRef, { billFolio: generated }, { merge: true })
+    return generated
+  })
+
+  tabFolioCache.set(id, folio)
+  return folio
+}
+
 function consumptionTicketText({ tab, orders, folio }) {
   const tableId = String(tab?.tableId ?? '')
   const mesa = tableLabel(tableId)
@@ -282,7 +318,7 @@ async function ticketText(order, { db }) {
   const tableId = String(order?.tableId ?? '')
   const tabId = String(order?.tabId ?? '')
   const cuenta = cuentaShort(tabId)
-  const folio = await tabFolioMaybe({ db, tabId })
+  const folio = tabId ? await ensureTabFolio({ db, tabId }) : await tabFolioMaybe({ db, tabId })
   const by = String(order?.createdByName ?? '').trim()
 
   const lines = []
@@ -651,7 +687,7 @@ async function main() {
         inFlightBills.add(id)
         try {
           const printer = outPrinters.receipt
-          const folio = await nextDailyFolio({ db })
+          const folio = await ensureTabFolio({ db, tabId: id })
           const ordersSnap = await getDocs(query(collection(db, 'orders'), where('tabId', '==', id)))
           const tab = t
           const orders = ordersSnap.docs.map((d) => ({ id: d.id, ...(d.data() ?? {}) }))

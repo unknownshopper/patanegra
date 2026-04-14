@@ -150,6 +150,7 @@ export default function MenuPublicoPage() {
   const [sendMsg, setSendMsg] = useState<string | null>(null)
   const [cartTableId, setCartTableId] = useState<string>('')
   const [takeoutName, setTakeoutName] = useState<string>('')
+  const [confirmAddToExistingTab, setConfirmAddToExistingTab] = useState(false)
 
   const isStaff = Boolean(user?.role)
   const canTakeOrders = user?.role === 'mesero' || user?.role === 'caja' || user?.role === 'gerente' || user?.role === 'admin'
@@ -163,6 +164,10 @@ export default function MenuPublicoPage() {
   const viewItems = showDemo ? demoItems : items
 
   const menuLoading = !catsLoaded || !itemsLoaded
+
+  useEffect(() => {
+    setConfirmAddToExistingTab(false)
+  }, [cartTableId])
 
   useEffect(() => {
     const onError = (ev: ErrorEvent) => {
@@ -439,11 +444,7 @@ export default function MenuPublicoPage() {
       document.head.appendChild(script)
     }
     script.text = JSON.stringify(ld)
-  }, [tableLabel, viewCategories, viewItems])
-
-  useEffect(() => {
-    if (tableId) setCartTableId(tableId)
-  }, [tableId])
+  }, [tableLabel])
 
   useEffect(() => {
     const q = query(collection(db, 'menuCategories'), orderBy('sortOrder', 'asc'))
@@ -1145,6 +1146,7 @@ export default function MenuPublicoPage() {
                     )
 
                     if (existingTabSnap.empty) {
+                      setConfirmAddToExistingTab(false)
                       const ref = await addDoc(collection(db, 'tabs'), {
                         tableId: effectiveTableId,
                         status: 'open',
@@ -1157,6 +1159,11 @@ export default function MenuPublicoPage() {
                       tabId = ref.id
                       prevTotal = 0
                     } else {
+                      if (!confirmAddToExistingTab) {
+                        setConfirmAddToExistingTab(true)
+                        setSendMsg('Ya hay una cuenta abierta en esta mesa. Este pedido se agregará a la cuenta existente. Presiona "Enviar pedido" otra vez para confirmar.')
+                        return
+                      }
                       const d = existingTabSnap.docs[0]
                       tabId = d.id
                       prevTotal = Number((d.data() as any)?.total ?? 0)
