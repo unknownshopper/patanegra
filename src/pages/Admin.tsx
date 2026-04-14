@@ -971,6 +971,52 @@ export default function AdminPage() {
 
                 <div style={{ height: 8 }} />
 
+                <button
+                  className="button secondary"
+                  onClick={async () => {
+                    const legacy = orders.filter((o) => {
+                      const status = String((o as any)?.status ?? '')
+                      if (status === 'resolved') return false
+                      const tableId = String((o as any)?.tableId ?? '')
+                      if (!tableId) return false
+                      if (tableId.startsWith('terraza-')) return true
+                      if (tableId.startsWith('salon-')) return true
+                      return false
+                    })
+
+                    const n = legacy.length
+                    if (!n) {
+                      window.alert('No hay órdenes antiguas (terraza/salón) por resolver.')
+                      return
+                    }
+
+                    const ok = window.confirm(`Esto marcará como resueltas ${n} órdenes antiguas (terraza/salón). ¿Continuar?`)
+                    if (!ok) return
+
+                    const ids = legacy.map((o) => String((o as any)?.id ?? '').trim()).filter(Boolean)
+                    if (!ids.length) return
+
+                    const chunks: string[][] = []
+                    for (let i = 0; i < ids.length; i += 450) chunks.push(ids.slice(i, i + 450))
+                    for (const chunk of chunks) {
+                      const batch = writeBatch(db)
+                      for (const id of chunk) {
+                        batch.update(doc(db, 'orders', id), {
+                          status: 'resolved',
+                          resolvedAt: serverTimestamp(),
+                          resolvedByUid: user?.uid ?? null,
+                          resolvedByName: user?.displayName ?? user?.email ?? null,
+                        })
+                      }
+                      await batch.commit()
+                    }
+                  }}
+                >
+                  Resolver antiguas (terraza/salón)
+                </button>
+
+                <div style={{ height: 8 }} />
+
                 <div className="muted" style={{ fontSize: 12 }}>Ventas</div>
                 <button
                   className="button secondary"
