@@ -221,19 +221,6 @@ export default function CajaPage() {
     return () => window.clearInterval(t)
   }, [])
 
-  const extraTables = React.useMemo(() => {
-    try {
-      const raw = window.localStorage.getItem('adminTablesExtra')
-      const data = raw ? (JSON.parse(raw) as any) : {}
-      return {
-        terraza: Array.isArray(data?.terraza) ? data.terraza.map((x: any) => String(x)) : ([] as string[]),
-        salon: Array.isArray(data?.salon) ? data.salon.map((x: any) => String(x)) : ([] as string[]),
-      }
-    } catch {
-      return { terraza: [] as string[], salon: [] as string[] }
-    }
-  }, [now])
-
   React.useEffect(() => {
     const v = String(searchParams.get('v') ?? '').toLowerCase()
     const next: 'dashboard' | 'report' = v === 'report' || v === 'reporte' ? 'report' : 'dashboard'
@@ -450,21 +437,12 @@ export default function CajaPage() {
 
   const openTabsByTable: Record<string, Tab[]> = {}
   for (const t of openTabs) {
+    if (!t.tableId) continue
     if (!openTabsByTable[t.tableId]) openTabsByTable[t.tableId] = []
     openTabsByTable[t.tableId].push(t)
   }
 
-  const terraceTableIds = React.useMemo(() => {
-    const base = ['terraza-01', 'terraza-02', 'terraza-03']
-    const extra = extraTables.terraza.filter((x: string) => x && !base.includes(x))
-    return [...base, ...extra]
-  }, [extraTables.terraza])
-
-  const salonTableIds = React.useMemo(() => {
-    const base = ['salon-01', 'salon-02', 'salon-03', 'salon-04']
-    const extra = extraTables.salon.filter((x: string) => x && !base.includes(x))
-    return [...base, ...extra]
-  }, [extraTables.salon])
+  const mesaTableIds = baseTableIds
 
   const takeoutTableIds = Object.keys(openTabsByTable)
     .filter((id) => id.startsWith('togo-'))
@@ -766,30 +744,35 @@ export default function CajaPage() {
           <div className="row" style={{ justifyContent: 'flex-end' }}>
             <button
               className="button secondary"
-              onClick={() => {
-                const areaRaw = String(window.prompt('Área: terraza o salon', 'terraza') ?? '')
-                  .trim()
-                  .toLowerCase()
-                const area = areaRaw === 'salon' || areaRaw === 'salón' ? 'salon' : 'terraza'
-                const id = String(window.prompt('ID de mesa (ej. terraza-05 o salon-05)', '') ?? '').trim()
-                if (!id) return
+              onClick={async () => {
+                if (!payTab) return
+                const example = 'mesa-02'
+                const target = String(window.prompt('Mover cuenta a mesa (ej. mesa-02)', example) ?? '').trim()
+                if (!target) return
                 try {
-                  const raw = window.localStorage.getItem('adminTablesExtra')
-                  const data = raw ? (JSON.parse(raw) as any) : {}
-                  const next = {
-                    terraza: Array.isArray(data?.terraza) ? data.terraza.map((x: any) => String(x)) : [],
-                    salon: Array.isArray(data?.salon) ? data.salon.map((x: any) => String(x)) : [],
-                  }
-                  const list = area === 'salon' ? next.salon : next.terraza
-                  if (!list.includes(id)) list.push(id)
-                  window.localStorage.setItem('adminTablesExtra', JSON.stringify(next))
-                  setNow(Date.now())
+                  await moveTabToTable(payTab, target)
                 } catch {
                   // ignore
                 }
               }}
             >
-              + Agregar mesa
+              Cambiar mesa
+            </button>
+            <button
+              className="button secondary"
+              onClick={() => {
+                setPayMsg(null)
+                setTipMode('none')
+                setTipCustom('')
+                setPayMethod('efectivo')
+                setPayCourtesy(false)
+                setPayCourtesyPct(100)
+                setPayCourtesyName('')
+                setPayTab(payTab)
+                setPayOpen(true)
+              }}
+            >
+              Cobrar
             </button>
           </div>
         </div>
@@ -798,163 +781,7 @@ export default function CajaPage() {
       {view === 'dashboard' ? (
         <>
           <div className="tableGrid">
-            {terraceTableIds.map((tableId) => {
-              const tableTabs = openTabsByTable[tableId] ?? []
-              const oldestOpenedAtMs =
-                tableTabs.length
-                  ? tableTabs.reduce<number | null>((min, t) => {
-                      const ms = (t as any)?.openedAt?.toMillis ? (t as any).openedAt.toMillis() : null
-                      if (ms == null) return min
-                      if (min == null) return ms
-                      return Math.min(min, ms)
-                    }, null)
-                  : null
-              const isOpen = tableTabs.length > 0
-              return (
-                <div
-                  key={tableId}
-                  className={`tableCard${isOpen ? ' open' : ''}`}
-                  style={{ borderColor: isOpen ? 'rgba(245, 158, 11, 0.85)' : undefined }}
-                >
-                  <div className="row" style={{ justifyContent: 'space-between' }}>
-                    <div>
-                      <div style={{ fontWeight: 900 }}>{tableLabel(tableId)}</div>
-                      <div className="muted" style={{ fontSize: 12 }}>
-                        {isOpen ? (
-                          <>
-                            <strong style={{ color: '#111827' }}>{tableTabs.length}</strong> cuenta(s)
-                            {oldestOpenedAtMs != null ? ` · ${formatClock(oldestOpenedAtMs)}` : ''}
-                          </>
-                        ) : (
-                          'Libre'
-                        )}
-                      </div>
-                    </div>
-                  </div>
-
-                  <div style={{ height: 10 }} />
-
-                  <div style={{ display: 'grid', gap: 10 }}>
-                    {tableTabs.map((t) => (
-                      <div key={t.id} className="tabRow">
-                        <div>
-                          <div style={{ fontWeight: 900 }}>{t.tabName ? t.tabName : 'Cuenta'}</div>
-                          <div className="muted" style={{ fontSize: 12 }}>
-                            {t.createdByName ? `Mesero: ${t.createdByName}${t.createdByStaffId ? ` (${t.createdByStaffId})` : ''}` : '—'}
-                          </div>
-                          <div className="muted" style={{ fontSize: 12 }}>
-                            Consumo: <strong style={{ color: '#111827' }}>{money(Number(t.total ?? 0))}</strong>
-                          </div>
-                        </div>
-
-                        <div className="row" style={{ gap: 8, justifyContent: 'flex-end' }}>
-                          <button
-                            className="button secondary"
-                            onClick={() => setExpandedTabId((p) => (p === t.id ? null : t.id))}
-                          >
-                            Ver consumo
-                          </button>
-                          <button
-                            className="button secondary"
-                            onClick={async () => {
-                              const example = 'salon-02'
-                              const target = String(window.prompt('Mover cuenta a mesa (ej. salon-02 o terraza-03)', example) ?? '').trim()
-                              if (!target) return
-                              try {
-                                await moveTabToTable(t, target)
-                              } catch {
-                                // ignore
-                              }
-                            }}
-                          >
-                            Cambiar mesa
-                          </button>
-                          <button
-                            className="button secondary"
-                            onClick={() => {
-                              setPayMsg(null)
-                              setTipMode('none')
-                              setTipCustom('')
-                              setPayMethod('efectivo')
-                              setPayCourtesy(false)
-                              setPayCourtesyPct(100)
-                              setPayCourtesyName('')
-                              setPayTab({ ...t })
-                              setPayOpen(true)
-                            }}
-                          >
-                            Cobrar
-                          </button>
-                        </div>
-
-                        {expandedTabId === t.id ? (
-                          <div style={{ gridColumn: '1 / -1', marginTop: 10 }}>
-                            <div className="card" style={{ margin: 0, padding: 10 }}>
-                              {(() => {
-                                const breakdown = tabOrdersBreakdown(t)
-                                return (
-                                  <div className="row" style={{ justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                                    <div style={{ flex: 1 }}>
-                                      <div className="muted" style={{ fontSize: 12, marginBottom: 6 }}>Alimentos</div>
-                                      {breakdown.food.length === 0 ? <div className="muted" style={{ fontSize: 12 }}>Sin items.</div> : null}
-                                      <div style={{ display: 'grid', gap: 4 }}>
-                                        {breakdown.food.slice(0, 30).map((x) => (
-                                          <div key={x.name} className="row" style={{ justifyContent: 'space-between' }}>
-                                            <div>{x.name}</div>
-                                            <div className="row" style={{ gap: 10, justifyContent: 'flex-end' }}>
-                                              <div style={{ fontWeight: 900 }}>x{x.qty}</div>
-                                              <div style={{ fontWeight: 950 }}>{x.amount ? money(Number(x.amount)) : '—'}</div>
-                                            </div>
-                                          </div>
-                                        ))}
-                                      </div>
-                                      <div style={{ height: 6 }} />
-                                      <div className="row" style={{ justifyContent: 'space-between' }}>
-                                        <div className="muted" style={{ fontSize: 12 }}>Total alimentos</div>
-                                        <div style={{ fontWeight: 950 }}>{breakdown.foodTotal ? money(Number(breakdown.foodTotal)) : '—'}</div>
-                                      </div>
-                                    </div>
-
-                                    <div style={{ width: 14 }} />
-
-                                    <div style={{ flex: 1 }}>
-                                      <div className="muted" style={{ fontSize: 12, marginBottom: 6 }}>Bebidas</div>
-                                      {breakdown.drinks.length === 0 ? <div className="muted" style={{ fontSize: 12 }}>Sin items.</div> : null}
-                                      <div style={{ display: 'grid', gap: 4 }}>
-                                        {breakdown.drinks.slice(0, 30).map((x) => (
-                                          <div key={x.name} className="row" style={{ justifyContent: 'space-between' }}>
-                                            <div>{x.name}</div>
-                                            <div className="row" style={{ gap: 10, justifyContent: 'flex-end' }}>
-                                              <div style={{ fontWeight: 900 }}>x{x.qty}</div>
-                                              <div style={{ fontWeight: 950 }}>{x.amount ? money(Number(x.amount)) : '—'}</div>
-                                            </div>
-                                          </div>
-                                        ))}
-                                      </div>
-                                      <div style={{ height: 6 }} />
-                                      <div className="row" style={{ justifyContent: 'space-between' }}>
-                                        <div className="muted" style={{ fontSize: 12 }}>Total bebidas</div>
-                                        <div style={{ fontWeight: 950 }}>{breakdown.drinksTotal ? money(Number(breakdown.drinksTotal)) : '—'}</div>
-                                      </div>
-                                    </div>
-                                  </div>
-                                )
-                              })()}
-                            </div>
-                          </div>
-                        ) : null}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )
-            })}
-          </div>
-
-          <div style={{ height: 10 }} />
-
-          <div className="tableGrid">
-            {salonTableIds.map((tableId) => {
+            {mesaTableIds.map((tableId) => {
               const tableTabs = openTabsByTable[tableId] ?? []
               const oldestOpenedAtMs =
                 tableTabs.length

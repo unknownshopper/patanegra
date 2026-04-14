@@ -47,11 +47,11 @@ rules_version = '2';
      }
 
      function isValidTableId(tableId) {
-       return tableId in [
-         'terraza-01','terraza-02','terraza-03',
-         'salon-01','salon-02','salon-03','salon-04'
-       ];
-     }
+      return tableId in [
+        'mesa-01','mesa-02','mesa-03','mesa-04','mesa-05',
+        'mesa-06','mesa-07','mesa-08','mesa-09','mesa-10'
+      ];
+    }
 
      function isTakeoutTableId(tableId) {
        return tableId is string && tableId.matches('^togo-[0-9]+$');

@@ -644,55 +644,23 @@ export default function AdminPage() {
     setView(next)
   }, [searchParams])
 
-  const extraTables = React.useMemo(() => {
-    try {
-      const raw = window.localStorage.getItem('adminTablesExtra')
-      if (!raw) return { terraza: [] as string[], salon: [] as string[] }
-      const data = JSON.parse(raw) as any
-      return {
-        terraza: Array.isArray(data?.terraza) ? data.terraza.map((x: any) => String(x)) : [],
-        salon: Array.isArray(data?.salon) ? data.salon.map((x: any) => String(x)) : [],
-      }
-    } catch {
-      return { terraza: [] as string[], salon: [] as string[] }
+  const mesaTableIds = React.useMemo(() => {
+    return Array.from({ length: 10 }, (_, i) => `mesa-${String(i + 1).padStart(2, '0')}`)
+  }, [])
+
+  const tableLabel = React.useCallback((id: string) => {
+    if (id.startsWith('mesa-')) {
+      const raw = id.replace('mesa-', '').trim()
+      const n = Number(raw)
+      return Number.isFinite(n) && n > 0 ? `Mesa ${n}` : 'Mesa'
     }
-  }, [now])
-
-  const terraceTableIds = React.useMemo(() => {
-    const base = ['terraza-01', 'terraza-02', 'terraza-03']
-    const extra = extraTables.terraza.filter((x: string) => x && !base.includes(x))
-    return [...base, ...extra]
-  }, [extraTables.terraza])
-
-  const salonTableIds = React.useMemo(() => {
-    const base = ['salon-01', 'salon-02', 'salon-03', 'salon-04']
-    const extra = extraTables.salon.filter((x: string) => x && !base.includes(x))
-    return [...base, ...extra]
-  }, [extraTables.salon])
-
-  const tableLabelById: Record<string, string> = {
-    'terraza-01': 'Terraza 01',
-    'terraza-02': 'Terraza 02',
-    'terraza-03': 'Terraza 03',
-    'salon-01': 'Salón 01',
-    'salon-02': 'Salón 02',
-    'salon-03': 'Salón 03',
-    'salon-04': 'Salón 04',
-  }
-
-  const tableLabel = React.useCallback(
-    (id: string) => {
-      const exact = tableLabelById[id]
-      if (exact) return exact
-      if (id.startsWith('togo-')) {
-        const raw = id.replace('togo-', '').trim()
-        const n = Number(raw)
-        return Number.isFinite(n) && n > 0 ? `Para llevar #${n}` : 'Para llevar'
-      }
-      return id
-    },
-    [tableLabelById],
-  )
+    if (id.startsWith('togo-')) {
+      const raw = id.replace('togo-', '').trim()
+      const n = Number(raw)
+      return Number.isFinite(n) && n > 0 ? `Para llevar #${n}` : 'Para llevar'
+    }
+    return id
+  }, [])
 
   const openTabByTableId = React.useMemo(() => {
     const m = new Map<string, any>()
@@ -1070,7 +1038,7 @@ export default function AdminPage() {
           <div className="row" style={{ justifyContent: 'space-between' }}>
             <div>
               <div style={{ fontWeight: 900 }}>Mesas</div>
-              <div className="muted" style={{ fontSize: 12 }}>Croquis rápido (Salón / Terraza). Toca una mesa para ver el consumo.</div>
+              <div className="muted" style={{ fontSize: 12 }}>Toca una mesa para ver el consumo.</div>
             </div>
 
             <div className="row" style={{ gap: 8 }}>
@@ -1081,32 +1049,6 @@ export default function AdminPage() {
                 }}
               >
                 Para llevar +
-              </button>
-
-              <button
-                className="button secondary"
-                onClick={() => {
-                  const areaRaw = String(window.prompt('Área: terraza o salon', 'terraza') ?? '').trim().toLowerCase()
-                  const area = areaRaw === 'salon' || areaRaw === 'salón' ? 'salon' : 'terraza'
-                  const id = String(window.prompt('ID de mesa (ej. terraza-05 o salon-05)', '') ?? '').trim()
-                  if (!id) return
-                  try {
-                    const raw = window.localStorage.getItem('adminTablesExtra')
-                    const data = raw ? (JSON.parse(raw) as any) : {}
-                    const next = {
-                      terraza: Array.isArray(data?.terraza) ? data.terraza.map((x: any) => String(x)) : [],
-                      salon: Array.isArray(data?.salon) ? data.salon.map((x: any) => String(x)) : [],
-                    }
-                    const list = area === 'salon' ? next.salon : next.terraza
-                    if (!list.includes(id)) list.push(id)
-                    window.localStorage.setItem('adminTablesExtra', JSON.stringify(next))
-                    setNow(Date.now())
-                  } catch {
-                    // ignore
-                  }
-                }}
-              >
-                + Agregar mesa
               </button>
             </div>
           </div>
@@ -1159,62 +1101,24 @@ export default function AdminPage() {
             </div>
 
             <div>
-              <div className="muted" style={{ fontSize: 12, marginBottom: 8 }}>Terraza</div>
+              <div className="muted" style={{ fontSize: 12, marginBottom: 8 }}>Mesas</div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 10 }}>
-                {terraceTableIds.map((id) => {
+                {mesaTableIds.map((id) => {
                   const t = openTabByTableId.get(id)
                   const isOpen = Boolean(t)
                   const total = Number(t?.total ?? 0)
                   const openedAtMs = t?.openedAt?.toMillis ? t.openedAt.toMillis() : null
-                  const openedAtStr = openedAtMs != null ? formatClock(openedAtMs) : null
+                  const minutes = openedAtMs ? Math.max(0, Math.round((now - openedAtMs) / 60000)) : null
                   return (
                     <button
                       key={id}
-                      className="card"
-                      style={{
-                        margin: 0,
-                        textAlign: 'left',
-                        cursor: 'pointer',
-                        borderColor: selectedTableId === id ? '#111827' : isOpen ? '#fca5a5' : '#e5e7eb',
-                      }}
+                      className="tableCard"
+                      style={{ borderColor: isOpen ? 'rgba(245, 158, 11, 0.85)' : undefined, textAlign: 'left' }}
                       onClick={() => setSelectedTableId(id)}
                     >
                       <div style={{ fontWeight: 950 }}>{tableLabel(id)}</div>
-                      <div className="muted" style={{ fontSize: 12 }}>
-                        {isOpen ? (openedAtStr ? `Abierta · ${openedAtStr} · ${money(total)}` : `Abierta · ${money(total)}`) : 'Libre'}
-                      </div>
-                    </button>
-                  )
-                })}
-              </div>
-            </div>
-
-            <div>
-              <div className="muted" style={{ fontSize: 12, marginBottom: 8 }}>Salón</div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 10 }}>
-                {salonTableIds.map((id) => {
-                  const t = openTabByTableId.get(id)
-                  const isOpen = Boolean(t)
-                  const total = Number(t?.total ?? 0)
-                  const openedAtMs = t?.openedAt?.toMillis ? t.openedAt.toMillis() : null
-                  const openedAtStr = openedAtMs != null ? formatClock(openedAtMs) : null
-                  return (
-                    <button
-                      key={id}
-                      className="card"
-                      style={{
-                        margin: 0,
-                        textAlign: 'left',
-                        cursor: 'pointer',
-                        borderColor: isOpen ? 'rgba(216, 31, 38, 0.55)' : 'rgba(11, 11, 11, 0.10)',
-                        background: isOpen ? 'rgba(255,255,255,0.96)' : 'rgba(255,255,255,0.90)',
-                      }}
-                      onClick={() => setSelectedTableId(id)}
-                    >
-                      <div style={{ fontWeight: 950 }}>{tableLabel(id)}</div>
-                      <div className="muted" style={{ fontSize: 12 }}>
-                        {isOpen ? (openedAtStr ? `Abierta · ${openedAtStr} · ${money(total)}` : `Abierta · ${money(total)}`) : 'Libre'}
-                      </div>
+                      <div className="muted" style={{ fontSize: 12 }}>{isOpen ? `Cuenta abierta · ${money(total)}` : 'Libre'}</div>
+                      {isOpen && minutes != null ? <div className="muted" style={{ fontSize: 11 }}>{minutes} min</div> : null}
                     </button>
                   )
                 })}
