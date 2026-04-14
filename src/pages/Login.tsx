@@ -50,7 +50,33 @@ export default function LoginPage() {
   }, [navigate, redirectPath, user?.role])
 
   if (loading) return <div className="container">Cargando...</div>
-  if (user && !user.role) return <div className="container">Cargando rol...</div>
+  if (user && !user.role) {
+    return (
+      <div className="container">
+        <div className="card" style={{ maxWidth: 520 }}>
+          <h1 className="h1">Patanegra POS</h1>
+          <div style={{ fontWeight: 900, marginBottom: 8 }}>No se pudo cargar el rol</div>
+          <div className="muted" style={{ marginBottom: 10 }}>
+            Tu usuario inició sesión, pero no tiene rol asignado en Firestore (colección <code>users</code>). Pide al administrador que
+            asigne el rol <code>caja</code> a tu UID.
+          </div>
+          <div className="muted" style={{ fontSize: 12, marginBottom: 10 }}>UID: {user.uid}</div>
+          <button
+            className="button secondary"
+            onClick={async () => {
+              try {
+                await auth.signOut()
+              } catch {
+                // ignore
+              }
+            }}
+          >
+            Salir
+          </button>
+        </div>
+      </div>
+    )
+  }
   if (user?.role) return null
 
   return (

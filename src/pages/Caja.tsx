@@ -840,6 +840,22 @@ export default function CajaPage() {
                           <button
                             className="button secondary"
                             onClick={async () => {
+                              try {
+                                await updateDoc(doc(db, 'tabs', String(t.id)), {
+                                  billRequestedAt: serverTimestamp(),
+                                  billRequestedByUid: user?.uid ?? null,
+                                  billRequestedByName: user?.displayName ?? user?.email ?? null,
+                                })
+                              } catch {
+                                // ignore
+                              }
+                            }}
+                          >
+                            Pedir cuenta
+                          </button>
+                          <button
+                            className="button secondary"
+                            onClick={async () => {
                               const example = 'mesa-02'
                               const target = String(window.prompt('Mover cuenta a mesa (ej. mesa-02)', example) ?? '').trim()
                               if (!target) return
@@ -989,6 +1005,22 @@ export default function CajaPage() {
                                   onClick={() => setExpandedTabId((p) => (p === t.id ? null : t.id))}
                                 >
                                   Ver consumo
+                                </button>
+                                <button
+                                  className="button secondary"
+                                  onClick={async () => {
+                                    try {
+                                      await updateDoc(doc(db, 'tabs', String(t.id)), {
+                                        billRequestedAt: serverTimestamp(),
+                                        billRequestedByUid: user?.uid ?? null,
+                                        billRequestedByName: user?.displayName ?? user?.email ?? null,
+                                      })
+                                    } catch {
+                                      // ignore
+                                    }
+                                  }}
+                                >
+                                  Pedir cuenta
                                 </button>
                                 <button
                                   className="button secondary"
