@@ -1335,8 +1335,9 @@ export default function CajaPage() {
 
                   setPayOpen(false)
                   setPayTab(null)
-                } catch {
-                  setPayMsg('No se pudo registrar el cobro. Revisa permisos o conexión.')
+                } catch (e: any) {
+                  const msg = String(e?.code ? `${String(e.code)}: ${String(e.message ?? '')}` : e?.message ?? e ?? '')
+                  setPayMsg(msg ? `No se pudo registrar el cobro: ${msg}` : 'No se pudo registrar el cobro. Revisa permisos o conexión.')
                 } finally {
                   setPayBusy(false)
                 }

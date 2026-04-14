@@ -112,6 +112,15 @@ rules_version = '2';
            isNonNegativeNumber(request.resource.data.total) &&
            isNonNegativeNumber(resource.data.total) &&
            request.resource.data.total >= resource.data.total
+         ) ||
+         (
+           isMesero() &&
+           request.resource.data.diff(resource.data).changedKeys().hasOnly([
+             'billRequestedAt',
+             'billRequestedByUid',
+             'billRequestedByName',
+             'updatedAt'
+           ])
          );
        allow delete: if false;
      }
