@@ -34,8 +34,6 @@ type Item = {
   prices?: { cm20?: number; cm30?: number }
   sortOrder: number
   isActive: boolean
-  masaMadreEnabled?: boolean
-  masaMadreUpcharge?: number
   promoPercent?: number
   promoLabel?: string
 }
@@ -68,8 +66,6 @@ type MenuImportPayload = {
     prices?: { cm20?: number; cm30?: number }
     sortOrder?: number
     isActive?: boolean
-    masaMadreEnabled?: boolean
-    masaMadreUpcharge?: number
     promoPercent?: number
     promoLabel?: string
   }>
@@ -1451,23 +1447,23 @@ export default function AdminPage() {
 
       {view === 'editor' ? (
         <div className="card">
-        <div className="row" style={{ justifyContent: 'space-between' }}>
-          <strong>Editor de menú</strong>
-          <button
-            className="button"
-            onClick={async () => {
-              const nextSortOrder = categories.length ? Math.max(...categories.map((c) => Number(c.sortOrder ?? 0))) + 1 : 1
-              const ref = await addDoc(collection(db, 'menuCategories'), {
-                name: 'Nueva categoría',
-                sortOrder: nextSortOrder,
-                isActive: true,
-              })
-              setSelectedCategoryId(ref.id)
-            }}
-          >
-            + Categoría
-          </button>
-        </div>
+          <div className="row" style={{ justifyContent: 'space-between' }}>
+            <strong>Editor de menú</strong>
+            <button
+              className="button"
+              onClick={async () => {
+                const nextSortOrder = categories.length ? Math.max(...categories.map((c) => Number(c.sortOrder ?? 0))) + 1 : 1
+                const ref = await addDoc(collection(db, 'menuCategories'), {
+                  name: 'Nueva categoría',
+                  sortOrder: nextSortOrder,
+                  isActive: true,
+                })
+                setSelectedCategoryId(ref.id)
+              }}
+            >
+              + Categoría
+            </button>
+          </div>
 
         <div style={{ height: 12 }} />
 
@@ -1546,14 +1542,6 @@ export default function AdminPage() {
                       docData.prices = null
                     }
 
-                    if (it.masaMadreEnabled) {
-                      docData.masaMadreEnabled = true
-                      docData.masaMadreUpcharge = Number(it.masaMadreUpcharge ?? 35)
-                    } else {
-                      docData.masaMadreEnabled = false
-                      docData.masaMadreUpcharge = null
-                    }
-
                     if (typeof it.promoPercent === 'number' && it.promoPercent > 0) {
                       docData.promoPercent = Number(it.promoPercent)
                       docData.promoLabel = it.promoLabel ?? 'Descuento'
@@ -1586,7 +1574,7 @@ export default function AdminPage() {
             style={{ minHeight: 160, fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace', fontSize: 12 }}
             value={importJson}
             onChange={(e) => setImportJson(e.target.value)}
-            placeholder='{"categories":[{"name":"Pizzas"}],"items":[{"category":"Pizzas","name":"Pepperoni","prices":{"cm30":145,"cm20":110},"masaMadreEnabled":true}]}'
+            placeholder='{"categories":[{"name":"Pizzas"}],"items":[{"category":"Pizzas","name":"Pepperoni","prices":{"cm30":145,"cm20":110}}]}'
           />
         </div>
 
@@ -1870,76 +1858,43 @@ export default function AdminPage() {
                             <label style={{ width: 240 }}>
                               <input
                                 type="checkbox"
-                                defaultChecked={Boolean(it.masaMadreEnabled)}
+                                defaultChecked={typeof it.promoPercent === 'number' && it.promoPercent > 0}
                                 onChange={async (e) => {
                                   const enabled = e.target.checked
                                   await updateDoc(doc(db, 'menuItems', it.id), {
-                                    masaMadreEnabled: enabled,
-                                    masaMadreUpcharge: enabled ? Number(it.masaMadreUpcharge ?? 35) : null,
+                                    promoPercent: enabled ? Number(it.promoPercent ?? 30) : null,
+                                    promoLabel: enabled ? (it.promoLabel ?? 'Descuento') : null,
                                   })
                                 }}
                               />{' '}
-                              Masa madre (+$35)
+                              Promo (% descuento)
                             </label>
 
                             <div style={{ width: 140 }}>
-                              <label>Recargo</label>
+                              <label>%</label>
                               <input
                                 className="input"
                                 type="number"
-                                step="0.01"
-                                defaultValue={Number(it.masaMadreUpcharge ?? 35)}
+                                step="1"
+                                min="0"
+                                max="100"
+                                defaultValue={Number(it.promoPercent ?? 30)}
                                 onBlur={async (e) => {
-                                  await updateDoc(doc(db, 'menuItems', it.id), { masaMadreUpcharge: Number(e.target.value) })
+                                  await updateDoc(doc(db, 'menuItems', it.id), { promoPercent: Number(e.target.value) })
                                 }}
                               />
                             </div>
-                          </div>
-                        </div>
 
-                        <div style={{ height: 10 }} />
-
-                        <div className="row" style={{ alignItems: 'flex-end' }}>
-                          <label style={{ width: 240 }}>
-                            <input
-                              type="checkbox"
-                              defaultChecked={typeof it.promoPercent === 'number' && it.promoPercent > 0}
-                              onChange={async (e) => {
-                                const enabled = e.target.checked
-                                await updateDoc(doc(db, 'menuItems', it.id), {
-                                  promoPercent: enabled ? Number(it.promoPercent ?? 30) : null,
-                                  promoLabel: enabled ? (it.promoLabel ?? 'Descuento') : null,
-                                })
-                              }}
-                            />{' '}
-                            Promo (% descuento)
-                          </label>
-
-                          <div style={{ width: 140 }}>
-                            <label>%</label>
-                            <input
-                              className="input"
-                              type="number"
-                              step="1"
-                              min="0"
-                              max="100"
-                              defaultValue={Number(it.promoPercent ?? 30)}
-                              onBlur={async (e) => {
-                                await updateDoc(doc(db, 'menuItems', it.id), { promoPercent: Number(e.target.value) })
-                              }}
-                            />
-                          </div>
-
-                          <div style={{ flex: 1 }}>
-                            <label>Texto</label>
-                            <input
-                              className="input"
-                              defaultValue={it.promoLabel ?? 'Descuento'}
-                              onBlur={async (e) => {
-                                await updateDoc(doc(db, 'menuItems', it.id), { promoLabel: e.target.value })
-                              }}
-                            />
-                          </div>
+                            <div style={{ flex: 1 }}>
+                              <label>Texto</label>
+                              <input
+                                className="input"
+                                defaultValue={it.promoLabel ?? 'Descuento'}
+                                onBlur={async (e) => {
+                                  await updateDoc(doc(db, 'menuItems', it.id), { promoLabel: e.target.value })
+                                }}
+                              />
+                            </div>
                         </div>
                       </div>
 

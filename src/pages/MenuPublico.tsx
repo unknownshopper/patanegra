@@ -47,8 +47,6 @@ type Item = {
   prices?: { cm20?: number; cm30?: number }
   isActive: boolean
   sortOrder: number
-  masaMadreEnabled?: boolean
-  masaMadreUpcharge?: number
   promoPercent?: number
   promoLabel?: string
 }
@@ -67,8 +65,6 @@ const demoItems: Item[] = [
     prices: { cm30: 145, cm20: 110 },
     isActive: true,
     sortOrder: 1,
-    masaMadreEnabled: true,
-    masaMadreUpcharge: 35,
   },
   {
     id: 'hawaiana',
@@ -78,8 +74,6 @@ const demoItems: Item[] = [
     prices: { cm30: 145, cm20: 110 },
     isActive: true,
     sortOrder: 2,
-    masaMadreEnabled: true,
-    masaMadreUpcharge: 35,
   },
   {
     id: 'patanegra',
@@ -89,8 +83,6 @@ const demoItems: Item[] = [
     prices: { cm30: 180, cm20: 130 },
     isActive: true,
     sortOrder: 3,
-    masaMadreEnabled: true,
-    masaMadreUpcharge: 35,
   },
   {
     id: 'coca',
@@ -821,12 +813,6 @@ export default function MenuPublicoPage() {
                         </div>
                       ) : null}
                       {i.description ? <div className="muted">{i.description}</div> : null}
-                      {i.masaMadreEnabled ? (
-                        <div className="masaMadreLine">
-                          <span className="masaMadrePulse">MASA MADRE</span>
-                          <span className="muted">+ {money(Number(i.masaMadreUpcharge ?? 35))}</span>
-                        </div>
-                      ) : null}
                     </div>
                   ))}
 
