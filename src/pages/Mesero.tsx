@@ -314,17 +314,42 @@ export default function MeseroPage() {
                     {t.source === 'tab' ? (
                       <button
                         className="button secondary"
+                        disabled={(() => {
+                          const tab = openTabByTableId.get(String(t.tableId))
+                          if (!tab) return false
+                          const req = (tab as any)?.billRequestedAt
+                          const printed = (tab as any)?.billPrintedAt
+                          const requested = Boolean(req?.toMillis ? req.toMillis() : req)
+                          const done = Boolean(printed?.toMillis ? printed.toMillis() : printed)
+                          return requested || done
+                        })()}
                         onClick={async () => {
                           const tab = openTabByTableId.get(String(t.tableId))
                           if (!tab?.id) return
-                          await updateDoc(doc(db, 'tabs', String(tab.id)), {
-                            billRequestedAt: serverTimestamp(),
-                            billRequestedByUid: user?.uid ?? null,
-                            billRequestedByName: user?.displayName ?? user?.email ?? null,
-                          })
+                          try {
+                            await updateDoc(doc(db, 'tabs', String(tab.id)), {
+                              billRequestedAt: serverTimestamp(),
+                              billRequestedByUid: user?.uid ?? null,
+                              billRequestedByName: user?.displayName ?? user?.email ?? null,
+                              updatedAt: serverTimestamp(),
+                            })
+                          } catch (e: any) {
+                            const msg = String(e?.code ? `${String(e.code)}: ${String(e.message ?? '')}` : e?.message ?? e ?? '')
+                            window.alert(msg ? `No se pudo pedir la cuenta: ${msg}` : 'No se pudo pedir la cuenta.')
+                          }
                         }}
                       >
-                        Pedir cuenta
+                        {(() => {
+                          const tab = openTabByTableId.get(String(t.tableId))
+                          if (!tab) return 'Pedir cuenta'
+                          const req = (tab as any)?.billRequestedAt
+                          const printed = (tab as any)?.billPrintedAt
+                          const requested = Boolean(req?.toMillis ? req.toMillis() : req)
+                          const done = Boolean(printed?.toMillis ? printed.toMillis() : printed)
+                          if (done) return 'Cuenta impresa'
+                          if (requested) return 'Cuenta solicitada'
+                          return 'Pedir cuenta'
+                        })()}
                       </button>
                     ) : null}
                     <Link className="button secondary" to={`/menu?mesa=${t.tableId}`}>

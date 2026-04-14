@@ -531,11 +531,19 @@ export default function AdminPage() {
   }, [now, rangeStart, rangeEnd])
 
   const reportDetails = React.useMemo(() => {
-    const byKey: Record<string, { tabs: any[]; topItems: Array<{ name: string; qty: number }>; sum: number }> = {
-      day: { tabs: [], topItems: [], sum: 0 },
-      week: { tabs: [], topItems: [], sum: 0 },
-      month: { tabs: [], topItems: [], sum: 0 },
-      range: { tabs: [], topItems: [], sum: 0 },
+    const byKey: Record<
+      string,
+      {
+        tabs: any[]
+        topItems: Array<{ name: string; qty: number }>
+        sum: number
+        byMethod: { efectivo: number; terminal: number; transferencia: number; cortesia: number; legacy: number }
+      }
+    > = {
+      day: { tabs: [], topItems: [], sum: 0, byMethod: { efectivo: 0, terminal: 0, transferencia: 0, cortesia: 0, legacy: 0 } },
+      week: { tabs: [], topItems: [], sum: 0, byMethod: { efectivo: 0, terminal: 0, transferencia: 0, cortesia: 0, legacy: 0 } },
+      month: { tabs: [], topItems: [], sum: 0, byMethod: { efectivo: 0, terminal: 0, transferencia: 0, cortesia: 0, legacy: 0 } },
+      range: { tabs: [], topItems: [], sum: 0, byMethod: { efectivo: 0, terminal: 0, transferencia: 0, cortesia: 0, legacy: 0 } },
     }
 
     const compute = (key: 'day' | 'week' | 'month' | 'range', start: number, end: number) => {
@@ -553,9 +561,15 @@ export default function AdminPage() {
         })
 
       let sum = 0
+      const byMethod = { efectivo: 0, terminal: 0, transferencia: 0, cortesia: 0, legacy: 0 }
       for (const t of tabsInRange) {
         const isPaid = Boolean(t?.paidAt?.toMillis)
-        sum += isPaid ? Number(t.paidTotal ?? t.total ?? 0) : Number(t.total ?? 0)
+        const total = isPaid ? Number(t.paidTotal ?? t.total ?? 0) : Number(t.total ?? 0)
+        sum += total
+
+        const rawMethod = isPaid ? String(t?.paymentMethod ?? '') : 'legacy'
+        const m = rawMethod === 'efectivo' ? 'efectivo' : rawMethod === 'terminal' ? 'terminal' : rawMethod === 'transferencia' ? 'transferencia' : rawMethod === 'cortesia' ? 'cortesia' : 'legacy'
+        ;(byMethod as any)[m] = Number((byMethod as any)[m] ?? 0) + total
       }
 
       const qtyByName = new Map<string, number>()
@@ -577,7 +591,7 @@ export default function AdminPage() {
         .sort((a, b) => b.qty - a.qty)
         .slice(0, 3)
 
-      byKey[key] = { tabs: tabsInRange, topItems, sum }
+      byKey[key] = { tabs: tabsInRange, topItems, sum, byMethod }
     }
 
     compute('day', reportRanges.day.start, reportRanges.day.end)
@@ -1222,6 +1236,15 @@ export default function AdminPage() {
             >
               <div className="muted" style={{ fontSize: 12 }}>Hoy</div>
               <div style={{ fontWeight: 950, fontSize: 22 }}>{money(report.daySum)}</div>
+              <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>
+                Efectivo: <strong style={{ color: '#111827' }}>{money(reportDetails.day.byMethod.efectivo)}</strong>
+              </div>
+              <div className="muted" style={{ fontSize: 12 }}>
+                Tarjeta: <strong style={{ color: '#111827' }}>{money(reportDetails.day.byMethod.terminal)}</strong>
+              </div>
+              <div className="muted" style={{ fontSize: 12 }}>
+                Transferencia: <strong style={{ color: '#111827' }}>{money(reportDetails.day.byMethod.transferencia)}</strong>
+              </div>
             </button>
             <button
               type="button"
@@ -1252,6 +1275,15 @@ export default function AdminPage() {
             >
               <div className="muted" style={{ fontSize: 12 }}>Semana</div>
               <div style={{ fontWeight: 950, fontSize: 22 }}>{money(report.weekSum)}</div>
+              <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>
+                Efectivo: <strong style={{ color: '#111827' }}>{money(reportDetails.week.byMethod.efectivo)}</strong>
+              </div>
+              <div className="muted" style={{ fontSize: 12 }}>
+                Tarjeta: <strong style={{ color: '#111827' }}>{money(reportDetails.week.byMethod.terminal)}</strong>
+              </div>
+              <div className="muted" style={{ fontSize: 12 }}>
+                Transferencia: <strong style={{ color: '#111827' }}>{money(reportDetails.week.byMethod.transferencia)}</strong>
+              </div>
             </button>
             <button
               type="button"
@@ -1282,6 +1314,15 @@ export default function AdminPage() {
             >
               <div className="muted" style={{ fontSize: 12 }}>Mes</div>
               <div style={{ fontWeight: 950, fontSize: 22 }}>{money(report.monthSum)}</div>
+              <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>
+                Efectivo: <strong style={{ color: '#111827' }}>{money(reportDetails.month.byMethod.efectivo)}</strong>
+              </div>
+              <div className="muted" style={{ fontSize: 12 }}>
+                Tarjeta: <strong style={{ color: '#111827' }}>{money(reportDetails.month.byMethod.terminal)}</strong>
+              </div>
+              <div className="muted" style={{ fontSize: 12 }}>
+                Transferencia: <strong style={{ color: '#111827' }}>{money(reportDetails.month.byMethod.transferencia)}</strong>
+              </div>
             </button>
             <button
               type="button"
@@ -1321,6 +1362,15 @@ export default function AdminPage() {
             >
               <div className="muted" style={{ fontSize: 12 }}>Rango</div>
               <div style={{ fontWeight: 950, fontSize: 22 }}>{money(reportDetails.range.sum)}</div>
+              <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>
+                Efectivo: <strong style={{ color: '#111827' }}>{money(reportDetails.range.byMethod.efectivo)}</strong>
+              </div>
+              <div className="muted" style={{ fontSize: 12 }}>
+                Tarjeta: <strong style={{ color: '#111827' }}>{money(reportDetails.range.byMethod.terminal)}</strong>
+              </div>
+              <div className="muted" style={{ fontSize: 12 }}>
+                Transferencia: <strong style={{ color: '#111827' }}>{money(reportDetails.range.byMethod.transferencia)}</strong>
+              </div>
             </button>
           </div>
 
@@ -1355,6 +1405,23 @@ export default function AdminPage() {
                 >
                   Descargar CSV
                 </button>
+              </div>
+
+              <div style={{ height: 12 }} />
+
+              <div className="card" style={{ margin: 0 }}>
+                <div className="row" style={{ justifyContent: 'space-between' }}>
+                  <div className="muted" style={{ fontSize: 12 }}>Efectivo</div>
+                  <div style={{ fontWeight: 950 }}>{money(reportDetails[reportOpen].byMethod.efectivo)}</div>
+                </div>
+                <div className="row" style={{ justifyContent: 'space-between' }}>
+                  <div className="muted" style={{ fontSize: 12 }}>Tarjeta</div>
+                  <div style={{ fontWeight: 950 }}>{money(reportDetails[reportOpen].byMethod.terminal)}</div>
+                </div>
+                <div className="row" style={{ justifyContent: 'space-between' }}>
+                  <div className="muted" style={{ fontSize: 12 }}>Transferencia</div>
+                  <div style={{ fontWeight: 950 }}>{money(reportDetails[reportOpen].byMethod.transferencia)}</div>
+                </div>
               </div>
 
               <div style={{ height: 12 }} />

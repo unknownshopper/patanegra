@@ -290,10 +290,17 @@ export default function CajaPage() {
   }, [paidOrLegacyTabs, now])
 
   const reportDetails = React.useMemo(() => {
-    const byKey: Record<string, { tabs: Tab[]; sum: number }> = {
-      day: { tabs: [], sum: 0 },
-      week: { tabs: [], sum: 0 },
-      month: { tabs: [], sum: 0 },
+    const byKey: Record<
+      string,
+      {
+        tabs: Tab[]
+        sum: number
+        byMethod: { efectivo: number; terminal: number; transferencia: number; cortesia: number; legacy: number }
+      }
+    > = {
+      day: { tabs: [], sum: 0, byMethod: { efectivo: 0, terminal: 0, transferencia: 0, cortesia: 0, legacy: 0 } },
+      week: { tabs: [], sum: 0, byMethod: { efectivo: 0, terminal: 0, transferencia: 0, cortesia: 0, legacy: 0 } },
+      month: { tabs: [], sum: 0, byMethod: { efectivo: 0, terminal: 0, transferencia: 0, cortesia: 0, legacy: 0 } },
     }
 
     const compute = (key: 'day' | 'week' | 'month', start: number, end: number) => {
@@ -311,11 +318,19 @@ export default function CajaPage() {
         })
 
       let sum = 0
+      const byMethod = { efectivo: 0, terminal: 0, transferencia: 0, cortesia: 0, legacy: 0 }
+
       for (const t of rows) {
         const isPaid = Boolean((t as any)?.paidAt?.toMillis)
-        sum += isPaid ? Number((t as any).paidTotal ?? (t as any).total ?? 0) : Number((t as any).total ?? 0)
+        const total = isPaid ? Number((t as any).paidTotal ?? (t as any).total ?? 0) : Number((t as any).total ?? 0)
+        sum += total
+
+        const rawMethod = isPaid ? String((t as any).paymentMethod ?? '') : 'legacy'
+        const m = rawMethod === 'efectivo' ? 'efectivo' : rawMethod === 'terminal' ? 'terminal' : rawMethod === 'transferencia' ? 'transferencia' : rawMethod === 'cortesia' ? 'cortesia' : 'legacy'
+        ;(byMethod as any)[m] = Number((byMethod as any)[m] ?? 0) + total
       }
-      byKey[key] = { tabs: rows, sum }
+
+      byKey[key] = { tabs: rows, sum, byMethod }
     }
 
     compute('day', report.dayStart, report.dayStart + 24 * 60 * 60 * 1000)
@@ -587,14 +602,41 @@ export default function CajaPage() {
             <button className="card" style={{ margin: 0, textAlign: 'left', cursor: 'pointer' }} onClick={() => setReportOpen((p) => (p === 'day' ? null : 'day'))}>
               <div className="muted" style={{ fontSize: 12 }}>Hoy</div>
               <div style={{ fontWeight: 950, fontSize: 22 }}>{money(report.daySum)}</div>
+              <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>
+                Efectivo: <strong style={{ color: '#111827' }}>{money(reportDetails.day.byMethod.efectivo)}</strong>
+              </div>
+              <div className="muted" style={{ fontSize: 12 }}>
+                Tarjeta: <strong style={{ color: '#111827' }}>{money(reportDetails.day.byMethod.terminal)}</strong>
+              </div>
+              <div className="muted" style={{ fontSize: 12 }}>
+                Transferencia: <strong style={{ color: '#111827' }}>{money(reportDetails.day.byMethod.transferencia)}</strong>
+              </div>
             </button>
             <button className="card" style={{ margin: 0, textAlign: 'left', cursor: 'pointer' }} onClick={() => setReportOpen((p) => (p === 'week' ? null : 'week'))}>
               <div className="muted" style={{ fontSize: 12 }}>Semana</div>
               <div style={{ fontWeight: 950, fontSize: 22 }}>{money(report.weekSum)}</div>
+              <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>
+                Efectivo: <strong style={{ color: '#111827' }}>{money(reportDetails.week.byMethod.efectivo)}</strong>
+              </div>
+              <div className="muted" style={{ fontSize: 12 }}>
+                Tarjeta: <strong style={{ color: '#111827' }}>{money(reportDetails.week.byMethod.terminal)}</strong>
+              </div>
+              <div className="muted" style={{ fontSize: 12 }}>
+                Transferencia: <strong style={{ color: '#111827' }}>{money(reportDetails.week.byMethod.transferencia)}</strong>
+              </div>
             </button>
             <button className="card" style={{ margin: 0, textAlign: 'left', cursor: 'pointer' }} onClick={() => setReportOpen((p) => (p === 'month' ? null : 'month'))}>
               <div className="muted" style={{ fontSize: 12 }}>Mes</div>
               <div style={{ fontWeight: 950, fontSize: 22 }}>{money(report.monthSum)}</div>
+              <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>
+                Efectivo: <strong style={{ color: '#111827' }}>{money(reportDetails.month.byMethod.efectivo)}</strong>
+              </div>
+              <div className="muted" style={{ fontSize: 12 }}>
+                Tarjeta: <strong style={{ color: '#111827' }}>{money(reportDetails.month.byMethod.terminal)}</strong>
+              </div>
+              <div className="muted" style={{ fontSize: 12 }}>
+                Transferencia: <strong style={{ color: '#111827' }}>{money(reportDetails.month.byMethod.transferencia)}</strong>
+              </div>
             </button>
           </div>
 
@@ -613,6 +655,23 @@ export default function CajaPage() {
                   >
                     Descargar CSV
                   </button>
+                </div>
+
+                <div style={{ height: 12 }} />
+
+                <div className="card" style={{ margin: 0 }}>
+                  <div className="row" style={{ justifyContent: 'space-between' }}>
+                    <div className="muted" style={{ fontSize: 12 }}>Efectivo</div>
+                    <div style={{ fontWeight: 950 }}>{money(reportDetails[reportOpen].byMethod.efectivo)}</div>
+                  </div>
+                  <div className="row" style={{ justifyContent: 'space-between' }}>
+                    <div className="muted" style={{ fontSize: 12 }}>Tarjeta</div>
+                    <div style={{ fontWeight: 950 }}>{money(reportDetails[reportOpen].byMethod.terminal)}</div>
+                  </div>
+                  <div className="row" style={{ justifyContent: 'space-between' }}>
+                    <div className="muted" style={{ fontSize: 12 }}>Transferencia</div>
+                    <div style={{ fontWeight: 950 }}>{money(reportDetails[reportOpen].byMethod.transferencia)}</div>
+                  </div>
                 </div>
 
                 <div style={{ height: 12 }} />
@@ -793,6 +852,13 @@ export default function CajaPage() {
                     }, null)
                   : null
               const isOpen = tableTabs.length > 0
+              const hasBillRequest = tableTabs.some((t) => {
+                const req = (t as any)?.billRequestedAt
+                const printed = (t as any)?.billPrintedAt
+                const requested = Boolean(req?.toMillis ? req.toMillis() : req)
+                const done = Boolean(printed?.toMillis ? printed.toMillis() : printed)
+                return requested && !done
+              })
               return (
                 <div
                   key={tableId}
@@ -813,6 +879,20 @@ export default function CajaPage() {
                         )}
                       </div>
                     </div>
+                    {hasBillRequest ? (
+                      <div
+                        style={{
+                          fontSize: 11,
+                          fontWeight: 900,
+                          padding: '4px 8px',
+                          borderRadius: 999,
+                          background: 'rgba(245, 158, 11, 0.15)',
+                          border: '1px solid rgba(245, 158, 11, 0.35)',
+                        }}
+                      >
+                        Cuenta solicitada
+                      </div>
+                    ) : null}
                   </div>
 
                   <div style={{ height: 10 }} />
@@ -839,12 +919,14 @@ export default function CajaPage() {
                           </button>
                           <button
                             className="button secondary"
+                            disabled={Boolean((t as any)?.billPrintedAt?.toMillis ? (t as any).billPrintedAt.toMillis() : (t as any)?.billPrintedAt)}
                             onClick={async () => {
                               try {
                                 await updateDoc(doc(db, 'tabs', String(t.id)), {
                                   billRequestedAt: serverTimestamp(),
                                   billRequestedByUid: user?.uid ?? null,
                                   billRequestedByName: user?.displayName ?? user?.email ?? null,
+                                  updatedAt: serverTimestamp(),
                                 })
                               } catch {
                                 // ignore
@@ -852,6 +934,23 @@ export default function CajaPage() {
                             }}
                           >
                             Pedir cuenta
+                          </button>
+                          <button
+                            className="button secondary"
+                            onClick={async () => {
+                              try {
+                                await updateDoc(doc(db, 'tabs', String(t.id)), {
+                                  billReprintRequestedAt: serverTimestamp(),
+                                  billReprintRequestedByUid: user?.uid ?? null,
+                                  billReprintRequestedByName: user?.displayName ?? user?.email ?? null,
+                                  updatedAt: serverTimestamp(),
+                                })
+                              } catch {
+                                // ignore
+                              }
+                            }}
+                          >
+                            Reimprimir cuenta
                           </button>
                           <button
                             className="button secondary"
@@ -1008,12 +1107,14 @@ export default function CajaPage() {
                                 </button>
                                 <button
                                   className="button secondary"
+                                  disabled={Boolean((t as any)?.billPrintedAt?.toMillis ? (t as any).billPrintedAt.toMillis() : (t as any)?.billPrintedAt)}
                                   onClick={async () => {
                                     try {
                                       await updateDoc(doc(db, 'tabs', String(t.id)), {
                                         billRequestedAt: serverTimestamp(),
                                         billRequestedByUid: user?.uid ?? null,
                                         billRequestedByName: user?.displayName ?? user?.email ?? null,
+                                        updatedAt: serverTimestamp(),
                                       })
                                     } catch {
                                       // ignore
@@ -1021,6 +1122,23 @@ export default function CajaPage() {
                                   }}
                                 >
                                   Pedir cuenta
+                                </button>
+                                <button
+                                  className="button secondary"
+                                  onClick={async () => {
+                                    try {
+                                      await updateDoc(doc(db, 'tabs', String(t.id)), {
+                                        billReprintRequestedAt: serverTimestamp(),
+                                        billReprintRequestedByUid: user?.uid ?? null,
+                                        billReprintRequestedByName: user?.displayName ?? user?.email ?? null,
+                                        updatedAt: serverTimestamp(),
+                                      })
+                                    } catch {
+                                      // ignore
+                                    }
+                                  }}
+                                >
+                                  Reimprimir cuenta
                                 </button>
                                 <button
                                   className="button secondary"

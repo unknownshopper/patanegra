@@ -721,6 +721,54 @@ async function main() {
           inFlightBills.delete(id)
         }
       }
+
+      for (const t of docs) {
+        const id = String(t?.id ?? '')
+        if (!id) continue
+        if (!t?.billReprintRequestedAt?.toMillis && t?.billReprintRequestedAt == null) continue
+
+        const reqMs = toMillisMaybe(t?.billReprintRequestedAt)
+        const doneMs = toMillisMaybe(t?.billReprintPrintedAt)
+        if (reqMs != null && doneMs != null && doneMs >= reqMs) continue
+        if (inFlightBills.has(id)) continue
+
+        inFlightBills.add(id)
+        try {
+          const printer = outPrinters.receipt
+          const folio = await ensureTabFolio({ db, tabId: id })
+          const ordersSnap = await getDocs(query(collection(db, 'orders'), where('tabId', '==', id)))
+          const tab = t
+          const orders = ordersSnap.docs.map((d) => ({ id: d.id, ...(d.data() ?? {}) }))
+          const text = consumptionTicketText({ tab, orders, folio })
+          await printViaLp({ printer, text, dryRun })
+          if (!dryRun) {
+            await updateDoc(doc(db, 'tabs', id), {
+              billReprintPrintedAt: serverTimestamp(),
+              billReprintPrintedBy: auth.currentUser?.uid ?? null,
+              billReprintPrintedDevice: deviceName,
+              billReprintPrintedPrinter: printer,
+              billFolio: folio,
+            })
+            tabFolioCache.set(id, folio)
+          }
+          console.log(`[print-bridge] Bill reprinted ${id} -> ${printer} folio=${folio}`)
+        } catch (e) {
+          console.error('[print-bridge] Error reprinting bill', t?.id, e)
+          if (!dryRun) {
+            try {
+              await updateDoc(doc(db, 'tabs', String(t?.id ?? '')), {
+                billReprintErrorAt: serverTimestamp(),
+                billReprintErrorMsg: String((e && e.message) || e || 'bill reprint error'),
+                billReprintErrorDevice: deviceName,
+              })
+            } catch {
+              // ignore
+            }
+          }
+        } finally {
+          inFlightBills.delete(id)
+        }
+      }
     },
     (err) => {
       console.error('[print-bridge] Snapshot error (bills)', err)

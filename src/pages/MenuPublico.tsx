@@ -282,20 +282,6 @@ export default function MenuPublicoPage() {
 
   const TAKEOUT_VALUE = '__togo__'
 
-  const filterBadges = React.useMemo(() => {
-    const present = new Set<'pizzas' | 'calzones' | 'panes' | 'bebidas' | 'otros'>()
-    for (const it of viewItems) present.add(itemType(it))
-    const order: Array<'pizzas' | 'calzones' | 'panes' | 'bebidas' | 'otros'> = ['pizzas', 'calzones', 'panes', 'bebidas', 'otros']
-    const label: Record<'pizzas' | 'calzones' | 'panes' | 'bebidas' | 'otros', string> = {
-      pizzas: 'Pizzas',
-      calzones: 'Calzones',
-      panes: 'Panes',
-      bebidas: 'Bebidas',
-      otros: 'Otros',
-    }
-    return order.filter((k) => present.has(k)).map((k) => ({ key: k, label: label[k] }))
-  }, [itemType, viewItems])
-
   const filteredItems = React.useMemo(() => {
     const q = normalizeText(productQuery.trim())
     return viewItems.filter((it) => {
@@ -307,9 +293,17 @@ export default function MenuPublicoPage() {
   }, [itemType, normalizeText, productQuery, typeFilter, viewItems])
 
   const filteredCategories = React.useMemo(() => {
+    const q = productQuery.trim()
+    if (!q && typeFilter === 'all') return viewCategories
     const idsWithItems = new Set(filteredItems.map((it) => it.categoryId))
     return viewCategories.filter((c) => idsWithItems.has(c.id))
-  }, [filteredItems, viewCategories])
+  }, [filteredItems, productQuery, typeFilter, viewCategories])
+
+  const navCategories = React.useMemo(() => {
+    const q = productQuery.trim()
+    if (!q && typeFilter === 'all') return viewCategories
+    return filteredCategories
+  }, [filteredCategories, productQuery, typeFilter, viewCategories])
 
   function isBarItem(it: Item) {
     const name = (categoryNameById.get(it.categoryId) ?? it.categoryId).toLowerCase()
@@ -627,16 +621,6 @@ export default function MenuPublicoPage() {
             >
               Todo
             </button>
-            {filterBadges.map((b) => (
-              <button
-                key={b.key}
-                className="button secondary"
-                style={{ borderColor: typeFilter === b.key ? '#111827' : '#e5e7eb' }}
-                onClick={() => setTypeFilter(b.key)}
-              >
-                {b.label}
-              </button>
-            ))}
 
             {productQuery.trim() || typeFilter !== 'all' ? (
               <button
@@ -650,7 +634,23 @@ export default function MenuPublicoPage() {
                 Limpiar
               </button>
             ) : null}
+
+            {navCategories.map((c) => (
+              <button
+                key={c.id}
+                className="button secondary"
+                style={{ borderColor: '#e5e7eb' }}
+                onClick={() => {
+                  const el = document.getElementById(`cat-${c.id}`)
+                  if (!el) return
+                  el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+                }}
+              >
+                {c.name}
+              </button>
+            ))}
           </div>
+
           {productQuery.trim() || typeFilter !== 'all' ? (
             <div className="muted" style={{ fontSize: 12 }}>
               Mostrando <strong style={{ color: '#111827' }}>{filteredItems.length}</strong> producto(s).
