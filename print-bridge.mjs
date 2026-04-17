@@ -502,6 +502,7 @@ async function main() {
   console.log('[print-bridge] LP raw:', lpRaw)
   console.log('[print-bridge] ESCPOS:', escpos)
   console.log('[print-bridge] ESCPOS cut:', escposCut)
+  console.log('[print-bridge] Device:', deviceName)
 
   const app = initializeApp(firebaseConfig)
   const auth = getAuth(app)
@@ -739,6 +740,9 @@ async function main() {
               billPrintedDevice: deviceName,
               billPrintedPrinter: printer,
               billFolio: folio,
+              billReprintRequestedAt: null,
+              billReprintRequestedByUid: null,
+              billReprintRequestedByName: null,
             })
             tabFolioCache.set(id, folio)
           }
