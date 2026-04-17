@@ -1335,6 +1335,98 @@ export default function CajaPage() {
                                     )
                                   })()}
                                 </div>
+
+                                <div style={{ height: 10 }} />
+
+                                <div className="card" style={{ margin: 0, padding: 10 }}>
+                                  <div className="muted" style={{ fontSize: 12, marginBottom: 6 }}>Quitar productos (cuenta abierta)</div>
+                                  {(() => {
+                                    const tabOrders = orders
+                                      .filter((o) => String(o?.tabId ?? '') === String(t.id))
+                                      .filter((o) => {
+                                        const its = Array.isArray((o as any)?.items) ? (o as any).items : []
+                                        return its.length > 0
+                                      })
+                                      .sort((a, b) => {
+                                        const aMs = (a as any)?.createdAt?.toMillis ? (a as any).createdAt.toMillis() : 0
+                                        const bMs = (b as any)?.createdAt?.toMillis ? (b as any).createdAt.toMillis() : 0
+                                        return bMs - aMs
+                                      })
+
+                                    if (!tabOrders.length) return <div className="muted" style={{ fontSize: 12 }}>Sin comandas.</div>
+
+                                    return (
+                                      <div style={{ display: 'grid', gap: 10 }}>
+                                        {tabOrders.slice(0, 20).map((o) => (
+                                          <div key={String(o.id)} className="card" style={{ margin: 0, padding: 10 }}>
+                                            <div className="row" style={{ justifyContent: 'space-between' }}>
+                                              <div style={{ fontWeight: 900 }}>{String(o?.area ?? '') === 'bar' ? 'Barra' : 'Cocina'}</div>
+                                              <div className="muted" style={{ fontSize: 12 }}>
+                                                {(o as any)?.createdAt?.toDate
+                                                  ? (o as any).createdAt.toDate().toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })
+                                                  : ''}
+                                              </div>
+                                            </div>
+                                            {(() => {
+                                              const printedAt = (o as any)?.printedAt
+                                              const isPrinted = Boolean(printedAt?.toMillis ? printedAt.toMillis() : printedAt)
+                                              return isPrinted ? (
+                                                <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>Ya impreso</div>
+                                              ) : (
+                                                <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>No impreso</div>
+                                              )
+                                            })()}
+                                            <div style={{ height: 8 }} />
+                                            <div style={{ display: 'grid', gap: 6 }}>
+                                              {(Array.isArray((o as any)?.items) ? (o as any).items : []).map((it: any) => (
+                                                <div
+                                                  key={String(it?.itemId ?? '')}
+                                                  className="row"
+                                                  style={{ justifyContent: 'space-between', gap: 10 }}
+                                                >
+                                                  <div>
+                                                    <div style={{ fontWeight: 700 }}>{String(it?.name ?? it?.itemId ?? '')}</div>
+                                                    <div className="muted" style={{ fontSize: 12 }}>x{Number(it?.qty ?? 0)}</div>
+                                                  </div>
+                                                  <button
+                                                    className="button secondary"
+                                                    onClick={async () => {
+                                                      const printedAt = (o as any)?.printedAt
+                                                      const isPrinted = Boolean(printedAt?.toMillis ? printedAt.toMillis() : printedAt)
+                                                      const msg = isPrinted
+                                                        ? 'Esta comanda ya se imprimió. ¿Quitar 1 unidad de este producto de la cuenta de todas formas?'
+                                                        : '¿Quitar 1 unidad de este producto?'
+                                                      const ok = window.confirm(msg)
+                                                      if (!ok) return
+                                                      try {
+                                                        await removeOrderItem({
+                                                          tabId: String(t.id),
+                                                          orderId: String(o.id),
+                                                          itemId: String(it?.itemId ?? ''),
+                                                        })
+                                                      } catch (e: any) {
+                                                        const msg = String(
+                                                          e?.code
+                                                            ? `${String(e.code)}: ${String(e.message ?? '')}`
+                                                            : e?.message ?? e ?? '',
+                                                        )
+                                                        window.alert(
+                                                          msg ? `No se pudo quitar el producto: ${msg}` : 'No se pudo quitar el producto.',
+                                                        )
+                                                      }
+                                                    }}
+                                                  >
+                                                    Quitar
+                                                  </button>
+                                                </div>
+                                              ))}
+                                            </div>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    )
+                                  })()}
+                                </div>
                               </div>
                             ) : null}
                           </div>
