@@ -771,6 +771,8 @@ async function main() {
         if (!t?.billPrintedAt?.toMillis && t?.billPrintedAt == null) continue
 
         const reqMs = toMillisMaybe(t?.billReprintRequestedAt)
+        const printedMs = toMillisMaybe(t?.billPrintedAt)
+        if (reqMs != null && printedMs != null && reqMs <= printedMs) continue
         const doneMs = toMillisMaybe(t?.billReprintPrintedAt)
         if (reqMs != null && doneMs != null && doneMs >= reqMs) continue
         const lastPrinted = recentlyPrintedBills.get(id)

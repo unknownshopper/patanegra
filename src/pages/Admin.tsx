@@ -56,6 +56,17 @@ function formatClock(ms: number) {
   return new Date(ms).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })
 }
 
+function toMillisMaybe(ts: any) {
+  try {
+    if (!ts) return null
+    if (typeof ts.toMillis === 'function') return ts.toMillis()
+    if (typeof ts === 'number') return ts
+    return null
+  } catch {
+    return null
+  }
+}
+
 type MenuImportPayload = {
   categories: Array<{ name: string; sortOrder?: number; isActive?: boolean }>
   items: Array<{
@@ -733,6 +744,68 @@ export default function AdminPage() {
     return { items, total, ordersCount }
   }, [openTabByTableId, orders, selectedTableId])
 
+  const removeOrderItem = React.useCallback(
+    async (opts: { tabId: string; orderId: string; itemId: string }) => {
+      const { tabId, orderId, itemId } = opts
+      if (!tabId || !orderId || !itemId) return
+
+      await runTransaction(db, async (tx) => {
+        const tabRef = doc(db, 'tabs', tabId)
+        const orderRef = doc(db, 'orders', orderId)
+
+        const [tabSnap, orderSnap] = await Promise.all([tx.get(tabRef), tx.get(orderRef)])
+        if (!tabSnap.exists() || !orderSnap.exists()) return
+
+        const tab = tabSnap.data() as any
+        const order = orderSnap.data() as any
+
+        if (String(order?.status ?? '') !== 'pending') return
+        const printedAt = order?.printedAt
+        const isPrinted = Boolean(printedAt?.toMillis ? printedAt.toMillis() : printedAt)
+        if (isPrinted) return
+
+        const items: any[] = Array.isArray(order?.items) ? [...order.items] : []
+        const idx = items.findIndex((x) => String(x?.itemId ?? '') === String(itemId))
+        if (idx < 0) return
+
+        const cur = items[idx] ?? {}
+        const curQty = Number(cur?.qty ?? 0)
+        if (!Number.isFinite(curQty) || curQty <= 0) return
+
+        const unitPrice = Number(cur?.unitPrice ?? 0)
+        const unitFromLineTotal = curQty > 0 ? Number(cur?.lineTotal ?? 0) / curQty : 0
+        const unit = unitPrice > 0 ? unitPrice : unitFromLineTotal
+        const delta = Math.max(0, Math.round(unit * 100) / 100)
+
+        if (curQty > 1) {
+          const nextQty = curQty - 1
+          items[idx] = {
+            ...cur,
+            qty: nextQty,
+            lineTotal: Math.round((Number(unitPrice > 0 ? unitPrice : unit) * nextQty) * 100) / 100,
+          }
+        } else {
+          items.splice(idx, 1)
+        }
+
+        const nextStatus = items.length === 0 ? 'resolved' : 'pending'
+        tx.update(orderRef, {
+          items,
+          status: nextStatus,
+          updatedAt: serverTimestamp(),
+          voidedAt: items.length === 0 ? serverTimestamp() : null,
+          voidedByUid: items.length === 0 ? (user?.uid ?? null) : null,
+          voidedByName: items.length === 0 ? (user?.displayName ?? user?.email ?? null) : null,
+        })
+
+        const prevTotal = Number(tab?.total ?? 0)
+        const nextTotal = Math.max(0, Math.round((prevTotal - delta) * 100) / 100)
+        tx.update(tabRef, { total: nextTotal, updatedAt: serverTimestamp() })
+      })
+    },
+    [user?.displayName, user?.email, user?.uid],
+  )
+
   return (
     <div className="container">
       <SessionBar
@@ -1183,6 +1256,72 @@ export default function AdminPage() {
                     ) : (
                       <div className="muted">Aún no hay consumo registrado en comandas.</div>
                     )}
+
+                    <div style={{ height: 14 }} />
+
+                    <div className="card" style={{ margin: 0, padding: 10 }}>
+                      <div className="muted" style={{ fontSize: 12, marginBottom: 6 }}>Quitar productos (solo comandas pendientes antes de imprimir)</div>
+                      {(() => {
+                        const tabId = String(selectedOpenTab?.id ?? '')
+                        if (!tabId) return <div className="muted" style={{ fontSize: 12 }}>—</div>
+                        const pending = orders
+                          .filter((o) => String(o?.status ?? '') === 'pending')
+                          .filter((o) => String(o?.tabId ?? '') === tabId)
+                          .filter((o) => {
+                            const printedAt = (o as any)?.printedAt
+                            const isPrinted = Boolean(printedAt?.toMillis ? printedAt.toMillis() : printedAt)
+                            return !isPrinted
+                          })
+                          .sort((a, b) => {
+                            const aMs = toMillisMaybe((a as any)?.createdAt) ?? 0
+                            const bMs = toMillisMaybe((b as any)?.createdAt) ?? 0
+                            return bMs - aMs
+                          })
+
+                        if (!pending.length) {
+                          return <div className="muted" style={{ fontSize: 12 }}>Sin comandas pendientes.</div>
+                        }
+
+                        return (
+                          <div style={{ display: 'grid', gap: 10 }}>
+                            {pending.slice(0, 20).map((o) => (
+                              <div key={String(o.id)} className="card" style={{ margin: 0, padding: 10 }}>
+                                <div className="row" style={{ justifyContent: 'space-between' }}>
+                                  <div style={{ fontWeight: 900 }}>{String((o as any)?.area ?? '') === 'bar' ? 'Barra' : 'Cocina'}</div>
+                                  <div className="muted" style={{ fontSize: 12 }}>{formatClock(toMillisMaybe((o as any)?.createdAt) ?? Date.now())}</div>
+                                </div>
+                                <div style={{ height: 8 }} />
+                                <div style={{ display: 'grid', gap: 6 }}>
+                                  {(Array.isArray((o as any)?.items) ? (o as any).items : []).map((it: any) => (
+                                    <div key={String(it?.itemId ?? '')} className="row" style={{ justifyContent: 'space-between', gap: 10 }}>
+                                      <div>
+                                        <div style={{ fontWeight: 700 }}>{String(it?.name ?? it?.itemId ?? '')}</div>
+                                        <div className="muted" style={{ fontSize: 12 }}>x{Number(it?.qty ?? 0)}</div>
+                                      </div>
+                                      <button
+                                        className="button secondary"
+                                        onClick={async () => {
+                                          const ok = window.confirm('¿Quitar 1 unidad de este producto?')
+                                          if (!ok) return
+                                          try {
+                                            await removeOrderItem({ tabId, orderId: String(o.id), itemId: String(it?.itemId ?? '') })
+                                          } catch (e: any) {
+                                            const msg = String(e?.code ? `${String(e.code)}: ${String(e.message ?? '')}` : e?.message ?? e ?? '')
+                                            window.alert(msg ? `No se pudo quitar el producto: ${msg}` : 'No se pudo quitar el producto.')
+                                          }
+                                        }}
+                                      >
+                                        Quitar
+                                      </button>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )
+                      })()}
+                    </div>
                   </>
                 ) : (
                   <div className="muted" style={{ marginTop: 10 }}>
