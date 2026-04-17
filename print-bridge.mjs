@@ -770,6 +770,8 @@ async function main() {
         const reqMs = toMillisMaybe(t?.billReprintRequestedAt)
         const doneMs = toMillisMaybe(t?.billReprintPrintedAt)
         if (reqMs != null && doneMs != null && doneMs >= reqMs) continue
+        const lastPrinted = recentlyPrintedBills.get(id)
+        if (typeof lastPrinted === 'number' && Date.now() - lastPrinted < 20 * 1000) continue
         if (inFlightBills.has(id)) continue
 
         inFlightBills.add(id)
@@ -791,9 +793,10 @@ async function main() {
             })
             tabFolioCache.set(id, folio)
           }
+          recentlyPrintedBills.set(id, Date.now())
           console.log(`[print-bridge] Bill reprinted ${id} -> ${printer} folio=${folio}`)
         } catch (e) {
-          console.error('[print-bridge] Error reprinting bill', t?.id, e)
+          console.error('[print-bridge] Error printing bill reprint', t?.id, e)
           if (!dryRun) {
             try {
               await updateDoc(doc(db, 'tabs', String(t?.id ?? '')), {
