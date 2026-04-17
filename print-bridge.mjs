@@ -513,6 +513,8 @@ async function main() {
   const inFlightOrders = new Set()
   const inFlightReceipts = new Set()
   const inFlightBills = new Set()
+  const recentlyPrintedOrders = new Map()
+  const recentlyPrintedBills = new Map()
   const recentlyFailedOrders = new Map()
   let unsubOrders = null
   let unsubReceipts = null
@@ -559,6 +561,8 @@ async function main() {
         const id = String(o?.id ?? '')
         if (!id) continue
         if (o?.printedAt?.toMillis || o?.printedAt != null) continue
+        const lastPrinted = recentlyPrintedOrders.get(id)
+        if (typeof lastPrinted === 'number' && Date.now() - lastPrinted < 20 * 1000) continue
         const lastLocalErr = recentlyFailedOrders.get(id)
         if (typeof lastLocalErr === 'number' && Date.now() - lastLocalErr < 60 * 1000) continue
         if (inFlightOrders.has(id)) continue
@@ -580,7 +584,9 @@ async function main() {
             })
           }
 
-          console.log(`[print-bridge] Printed ${id} -> ${printer}`)
+          recentlyPrintedOrders.set(id, Date.now())
+
+          console.log(`[print-bridge] Order printed ${id} -> ${printer}`)
         } catch (e) {
           console.error('[print-bridge] Error printing order', o?.id, e)
           recentlyFailedOrders.set(id, Date.now())
@@ -713,6 +719,8 @@ async function main() {
         if (!id) continue
         if (!t?.billRequestedAt?.toMillis && t?.billRequestedAt == null) continue
         if (t?.billPrintedAt?.toMillis || t?.billPrintedAt != null) continue
+        const lastPrinted = recentlyPrintedBills.get(id)
+        if (typeof lastPrinted === 'number' && Date.now() - lastPrinted < 20 * 1000) continue
         if (inFlightBills.has(id)) continue
 
         inFlightBills.add(id)
@@ -734,6 +742,7 @@ async function main() {
             })
             tabFolioCache.set(id, folio)
           }
+          recentlyPrintedBills.set(id, Date.now())
           console.log(`[print-bridge] Bill printed ${id} -> ${printer} folio=${folio}`)
         } catch (e) {
           console.error('[print-bridge] Error printing bill', t?.id, e)
