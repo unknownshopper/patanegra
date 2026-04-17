@@ -759,10 +759,8 @@ export default function AdminPage() {
         const tab = tabSnap.data() as any
         const order = orderSnap.data() as any
 
-        if (String(order?.status ?? '') !== 'pending') return
-        const printedAt = order?.printedAt
-        const isPrinted = Boolean(printedAt?.toMillis ? printedAt.toMillis() : printedAt)
-        if (isPrinted) return
+        if (String(tab?.status ?? '') !== 'open') return
+        if (String(order?.tabId ?? '') !== String(tabId)) return
 
         const items: any[] = Array.isArray(order?.items) ? [...order.items] : []
         const idx = items.findIndex((x) => String(x?.itemId ?? '') === String(itemId))
@@ -788,14 +786,17 @@ export default function AdminPage() {
           items.splice(idx, 1)
         }
 
-        const nextStatus = items.length === 0 ? 'resolved' : 'pending'
+        const nextStatus = items.length === 0 ? 'resolved' : String(order?.status ?? 'pending')
         tx.update(orderRef, {
           items,
           status: nextStatus,
           updatedAt: serverTimestamp(),
-          voidedAt: items.length === 0 ? serverTimestamp() : null,
-          voidedByUid: items.length === 0 ? (user?.uid ?? null) : null,
-          voidedByName: items.length === 0 ? (user?.displayName ?? user?.email ?? null) : null,
+          adjustedAt: serverTimestamp(),
+          adjustedByUid: user?.uid ?? null,
+          adjustedByName: user?.displayName ?? user?.email ?? null,
+          voidedAt: items.length === 0 ? serverTimestamp() : (order?.voidedAt ?? null),
+          voidedByUid: items.length === 0 ? (user?.uid ?? null) : (order?.voidedByUid ?? null),
+          voidedByName: items.length === 0 ? (user?.displayName ?? user?.email ?? null) : (order?.voidedByName ?? null),
         })
 
         const prevTotal = Number(tab?.total ?? 0)
@@ -1260,17 +1261,15 @@ export default function AdminPage() {
                     <div style={{ height: 14 }} />
 
                     <div className="card" style={{ margin: 0, padding: 10 }}>
-                      <div className="muted" style={{ fontSize: 12, marginBottom: 6 }}>Quitar productos (solo comandas pendientes antes de imprimir)</div>
+                      <div className="muted" style={{ fontSize: 12, marginBottom: 6 }}>Quitar productos (cuenta abierta)</div>
                       {(() => {
                         const tabId = String(selectedOpenTab?.id ?? '')
                         if (!tabId) return <div className="muted" style={{ fontSize: 12 }}>—</div>
-                        const pending = orders
-                          .filter((o) => String(o?.status ?? '') === 'pending')
+                        const tabOrders = orders
                           .filter((o) => String(o?.tabId ?? '') === tabId)
                           .filter((o) => {
-                            const printedAt = (o as any)?.printedAt
-                            const isPrinted = Boolean(printedAt?.toMillis ? printedAt.toMillis() : printedAt)
-                            return !isPrinted
+                            const its = Array.isArray((o as any)?.items) ? (o as any).items : []
+                            return its.length > 0
                           })
                           .sort((a, b) => {
                             const aMs = toMillisMaybe((a as any)?.createdAt) ?? 0
@@ -1278,18 +1277,27 @@ export default function AdminPage() {
                             return bMs - aMs
                           })
 
-                        if (!pending.length) {
-                          return <div className="muted" style={{ fontSize: 12 }}>Sin comandas pendientes.</div>
+                        if (!tabOrders.length) {
+                          return <div className="muted" style={{ fontSize: 12 }}>Sin comandas.</div>
                         }
 
                         return (
                           <div style={{ display: 'grid', gap: 10 }}>
-                            {pending.slice(0, 20).map((o) => (
+                            {tabOrders.slice(0, 20).map((o) => (
                               <div key={String(o.id)} className="card" style={{ margin: 0, padding: 10 }}>
                                 <div className="row" style={{ justifyContent: 'space-between' }}>
                                   <div style={{ fontWeight: 900 }}>{String((o as any)?.area ?? '') === 'bar' ? 'Barra' : 'Cocina'}</div>
                                   <div className="muted" style={{ fontSize: 12 }}>{formatClock(toMillisMaybe((o as any)?.createdAt) ?? Date.now())}</div>
                                 </div>
+                                {(() => {
+                                  const printedAt = (o as any)?.printedAt
+                                  const isPrinted = Boolean(printedAt?.toMillis ? printedAt.toMillis() : printedAt)
+                                  return isPrinted ? (
+                                    <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>Ya impreso</div>
+                                  ) : (
+                                    <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>No impreso</div>
+                                  )
+                                })()}
                                 <div style={{ height: 8 }} />
                                 <div style={{ display: 'grid', gap: 6 }}>
                                   {(Array.isArray((o as any)?.items) ? (o as any).items : []).map((it: any) => (
@@ -1301,7 +1309,12 @@ export default function AdminPage() {
                                       <button
                                         className="button secondary"
                                         onClick={async () => {
-                                          const ok = window.confirm('¿Quitar 1 unidad de este producto?')
+                                          const printedAt = (o as any)?.printedAt
+                                          const isPrinted = Boolean(printedAt?.toMillis ? printedAt.toMillis() : printedAt)
+                                          const msg = isPrinted
+                                            ? 'Esta comanda ya se imprimió. ¿Quitar 1 unidad de este producto de la cuenta de todas formas?'
+                                            : '¿Quitar 1 unidad de este producto?'
+                                          const ok = window.confirm(msg)
                                           if (!ok) return
                                           try {
                                             await removeOrderItem({ tabId, orderId: String(o.id), itemId: String(it?.itemId ?? '') })
