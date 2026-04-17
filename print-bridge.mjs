@@ -767,6 +767,9 @@ async function main() {
         if (!id) continue
         if (!t?.billReprintRequestedAt?.toMillis && t?.billReprintRequestedAt == null) continue
 
+        // Reprint is only valid after the bill has been printed at least once.
+        if (!t?.billPrintedAt?.toMillis && t?.billPrintedAt == null) continue
+
         const reqMs = toMillisMaybe(t?.billReprintRequestedAt)
         const doneMs = toMillisMaybe(t?.billReprintPrintedAt)
         if (reqMs != null && doneMs != null && doneMs >= reqMs) continue
