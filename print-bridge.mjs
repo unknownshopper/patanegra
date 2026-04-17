@@ -719,7 +719,9 @@ async function main() {
         const id = String(t?.id ?? '')
         if (!id) continue
         if (!t?.billRequestedAt?.toMillis && t?.billRequestedAt == null) continue
-        if (t?.billPrintedAt?.toMillis || t?.billPrintedAt != null) continue
+        const reqMs = toMillisMaybe(t?.billRequestedAt)
+        const printedMs = toMillisMaybe(t?.billPrintedAt)
+        if (reqMs != null && printedMs != null && reqMs <= printedMs) continue
         const lastPrinted = recentlyPrintedBills.get(id)
         if (typeof lastPrinted === 'number' && Date.now() - lastPrinted < 20 * 1000) continue
         if (inFlightBills.has(id)) continue
@@ -740,9 +742,6 @@ async function main() {
               billPrintedDevice: deviceName,
               billPrintedPrinter: printer,
               billFolio: folio,
-              billReprintRequestedAt: null,
-              billReprintRequestedByUid: null,
-              billReprintRequestedByName: null,
             })
             tabFolioCache.set(id, folio)
           }
@@ -761,69 +760,15 @@ async function main() {
               // ignore
             }
           }
-        } finally {
           inFlightBills.delete(id)
         }
       }
 
-      for (const t of docs) {
-        const id = String(t?.id ?? '')
-        if (!id) continue
-        if (!t?.billReprintRequestedAt?.toMillis && t?.billReprintRequestedAt == null) continue
-
-        // Reprint is only valid after the bill has been printed at least once.
-        if (!t?.billPrintedAt?.toMillis && t?.billPrintedAt == null) continue
-
-        const reqMs = toMillisMaybe(t?.billReprintRequestedAt)
-        const printedMs = toMillisMaybe(t?.billPrintedAt)
-        if (reqMs != null && printedMs != null && reqMs <= printedMs) continue
-        const doneMs = toMillisMaybe(t?.billReprintPrintedAt)
-        if (reqMs != null && doneMs != null && doneMs >= reqMs) continue
-        const lastPrinted = recentlyPrintedBills.get(id)
-        if (typeof lastPrinted === 'number' && Date.now() - lastPrinted < 20 * 1000) continue
-        if (inFlightBills.has(id)) continue
-
-        inFlightBills.add(id)
-        try {
-          const printer = outPrinters.receipt
-          const folio = await ensureTabFolio({ db, tabId: id })
-          const ordersSnap = await getDocs(query(collection(db, 'orders'), where('tabId', '==', id)))
-          const tab = t
-          const orders = ordersSnap.docs.map((d) => ({ id: d.id, ...(d.data() ?? {}) }))
-          const text = consumptionTicketText({ tab, orders, folio })
-          await printViaLp({ printer, text, dryRun })
-          if (!dryRun) {
-            await updateDoc(doc(db, 'tabs', id), {
-              billReprintPrintedAt: serverTimestamp(),
-              billReprintPrintedBy: auth.currentUser?.uid ?? null,
-              billReprintPrintedDevice: deviceName,
-              billReprintPrintedPrinter: printer,
-              billFolio: folio,
-            })
-            tabFolioCache.set(id, folio)
-          }
-          recentlyPrintedBills.set(id, Date.now())
-          console.log(`[print-bridge] Bill reprinted ${id} -> ${printer} folio=${folio}`)
-        } catch (e) {
-          console.error('[print-bridge] Error printing bill reprint', t?.id, e)
-          if (!dryRun) {
-            try {
-              await updateDoc(doc(db, 'tabs', String(t?.id ?? '')), {
-                billReprintErrorAt: serverTimestamp(),
-                billReprintErrorMsg: String((e && e.message) || e || 'bill reprint error'),
-                billReprintErrorDevice: deviceName,
-              })
-            } catch {
-              // ignore
-            }
-          }
-        } finally {
-          inFlightBills.delete(id)
-        }
-      }
+      // Note: docs are de-duplicated by id above to avoid double-printing when a single snapshot
+      // contains multiple changes for the same tab.
     },
     (err) => {
-      console.error('[print-bridge] Snapshot error (bills)', err)
+      console.error('[print-bridge] Bills snapshot error', err)
     },
   )
 

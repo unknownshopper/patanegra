@@ -998,7 +998,6 @@ export default function CajaPage() {
                           </button>
                           <button
                             className="button secondary"
-                            disabled={Boolean((t as any)?.billPrintedAt?.toMillis ? (t as any).billPrintedAt.toMillis() : (t as any)?.billPrintedAt)}
                             onClick={async () => {
                               try {
                                 await updateDoc(doc(db, 'tabs', String(t.id)), {
@@ -1013,23 +1012,6 @@ export default function CajaPage() {
                             }}
                           >
                             Pedir cuenta
-                          </button>
-                          <button
-                            className="button secondary"
-                            onClick={async () => {
-                              try {
-                                await updateDoc(doc(db, 'tabs', String(t.id)), {
-                                  billReprintRequestedAt: serverTimestamp(),
-                                  billReprintRequestedByUid: user?.uid ?? null,
-                                  billReprintRequestedByName: user?.displayName ?? user?.email ?? null,
-                                  updatedAt: serverTimestamp(),
-                                })
-                              } catch {
-                                // ignore
-                              }
-                            }}
-                          >
-                            Reimprimir cuenta
                           </button>
                           <button
                             className="button secondary"

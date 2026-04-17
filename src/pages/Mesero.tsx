@@ -314,15 +314,6 @@ export default function MeseroPage() {
                     {t.source === 'tab' ? (
                       <button
                         className="button secondary"
-                        disabled={(() => {
-                          const tab = openTabByTableId.get(String(t.tableId))
-                          if (!tab) return false
-                          const req = (tab as any)?.billRequestedAt
-                          const printed = (tab as any)?.billPrintedAt
-                          const requested = Boolean(req?.toMillis ? req.toMillis() : req)
-                          const done = Boolean(printed?.toMillis ? printed.toMillis() : printed)
-                          return requested || done
-                        })()}
                         onClick={async () => {
                           const tab = openTabByTableId.get(String(t.tableId))
                           if (!tab?.id) return
@@ -339,17 +330,7 @@ export default function MeseroPage() {
                           }
                         }}
                       >
-                        {(() => {
-                          const tab = openTabByTableId.get(String(t.tableId))
-                          if (!tab) return 'Pedir cuenta'
-                          const req = (tab as any)?.billRequestedAt
-                          const printed = (tab as any)?.billPrintedAt
-                          const requested = Boolean(req?.toMillis ? req.toMillis() : req)
-                          const done = Boolean(printed?.toMillis ? printed.toMillis() : printed)
-                          if (done) return 'Cuenta impresa'
-                          if (requested) return 'Cuenta solicitada'
-                          return 'Pedir cuenta'
-                        })()}
+                        Pedir cuenta
                       </button>
                     ) : null}
                     <Link className="button secondary" to={`/menu?mesa=${t.tableId}`}>
