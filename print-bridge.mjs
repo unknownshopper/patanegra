@@ -546,10 +546,14 @@ async function main() {
         )
       }
 
-      const docs = changes
-        .filter((c) => c.type === 'added' || c.type === 'modified')
-        .map((c) => ({ id: c.doc.id, ...(c.doc.data() ?? {}) }))
-        .sort((a, b) => (toMillisMaybe(a?.createdAt) ?? 0) - (toMillisMaybe(b?.createdAt) ?? 0))
+      const byId = new Map()
+      for (const c of changes) {
+        if (c.type !== 'added' && c.type !== 'modified') continue
+        byId.set(String(c.doc.id), { id: c.doc.id, ...(c.doc.data() ?? {}) })
+      }
+      const docs = Array.from(byId.values()).sort(
+        (a, b) => (toMillisMaybe(a?.createdAt) ?? 0) - (toMillisMaybe(b?.createdAt) ?? 0),
+      )
 
       for (const o of docs) {
         const id = String(o?.id ?? '')
@@ -608,75 +612,77 @@ async function main() {
 
     unsubReceipts = onSnapshot(
       qTabs,
-    async (snap) => {
-      console.log(
-        `[print-bridge] Receipts snapshot: size=${snap.size} changes=${snap.docChanges().length} fromCache=${snap.metadata.fromCache}`,
-      )
-
-      if (!receiptsBootstrapped) {
-        receiptsBootstrapped = true
-        console.log('[print-bridge] Receipts bootstrapped')
-        if (!processBacklog) return
-      }
-
-      const changes = snap.docChanges()
-      if (changes.length) {
+      async (snap) => {
         console.log(
-          '[print-bridge] Receipt changes:',
-          changes.map((c) => `${c.type}:${c.doc.id}`).join(', '),
+          `[print-bridge] Receipts snapshot: size=${snap.size} changes=${snap.docChanges().length} fromCache=${snap.metadata.fromCache}`,
         )
-      }
 
-      const docs = changes
-        .filter((c) => c.type === 'added' || c.type === 'modified')
-        .map((c) => ({ id: c.doc.id, ...(c.doc.data() ?? {}) }))
-        .sort((a, b) => (toMillisMaybe(a?.paidAt) ?? 0) - (toMillisMaybe(b?.paidAt) ?? 0))
-
-      for (const t of docs) {
-        const id = String(t?.id ?? '')
-        if (!id) continue
-        if (t?.receiptPrintedAt?.toMillis || t?.receiptPrintedAt != null) continue
-        if (!t?.paidAt?.toMillis && t?.paidAt == null) continue
-        if (inFlightReceipts.has(id)) continue
-
-        inFlightReceipts.add(id)
-        try {
-          const printer = outPrinters.receipt
-          const text = receiptText(t)
-
-          await printViaLp({ printer, text, dryRun })
-
-          if (!dryRun) {
-            await updateDoc(doc(db, 'tabs', id), {
-              receiptPrintedAt: serverTimestamp(),
-              receiptPrintedBy: auth.currentUser?.uid ?? null,
-              receiptPrintedDevice: deviceName,
-              receiptPrintedPrinter: printer,
-            })
-          }
-
-          console.log(`[print-bridge] Receipt printed ${id} -> ${printer}`)
-        } catch (e) {
-          console.error('[print-bridge] Error printing receipt', t?.id, e)
-          if (!dryRun) {
-            try {
-              await updateDoc(doc(db, 'tabs', String(t?.id ?? '')), {
-                receiptPrintErrorAt: serverTimestamp(),
-                receiptPrintErrorMsg: String((e && e.message) || e || 'receipt print error'),
-                receiptPrintErrorDevice: deviceName,
-              })
-            } catch {
-              // ignore
-            }
-          }
-        } finally {
-          inFlightReceipts.delete(id)
+        if (!receiptsBootstrapped) {
+          receiptsBootstrapped = true
+          console.log('[print-bridge] Receipts bootstrapped')
+          if (!processBacklog) return
         }
-      }
-    },
-    (err) => {
-      console.error('[print-bridge] Snapshot error (receipts)', err)
-    },
+
+        const changes = snap.docChanges()
+        if (changes.length) {
+          console.log(
+            '[print-bridge] Receipt changes:',
+            changes.map((c) => `${c.type}:${c.doc.id}`).join(', '),
+          )
+        }
+
+        const byId = new Map()
+        for (const c of changes) {
+          if (c.type !== 'added' && c.type !== 'modified') continue
+          byId.set(String(c.doc.id), { id: c.doc.id, ...(c.doc.data() ?? {}) })
+        }
+        const docs = Array.from(byId.values())
+
+        for (const t of docs) {
+          const id = String(t?.id ?? '')
+          if (!id) continue
+          if (t?.receiptPrintedAt?.toMillis || t?.receiptPrintedAt != null) continue
+          if (!t?.paidAt?.toMillis && t?.paidAt == null) continue
+          if (inFlightReceipts.has(id)) continue
+
+          inFlightReceipts.add(id)
+          try {
+            const printer = outPrinters.receipt
+            const text = receiptText(t)
+
+            await printViaLp({ printer, text, dryRun })
+
+            if (!dryRun) {
+              await updateDoc(doc(db, 'tabs', id), {
+                receiptPrintedAt: serverTimestamp(),
+                receiptPrintedBy: auth.currentUser?.uid ?? null,
+                receiptPrintedDevice: deviceName,
+                receiptPrintedPrinter: printer,
+              })
+            }
+
+            console.log(`[print-bridge] Receipt printed ${id} -> ${printer}`)
+          } catch (e) {
+            console.error('[print-bridge] Error printing receipt', t?.id, e)
+            if (!dryRun) {
+              try {
+                await updateDoc(doc(db, 'tabs', String(t?.id ?? '')), {
+                  receiptPrintErrorAt: serverTimestamp(),
+                  receiptPrintErrorMsg: String((e && e.message) || e || 'receipt print error'),
+                  receiptPrintErrorDevice: deviceName,
+                })
+              } catch {
+                // ignore
+              }
+            }
+          } finally {
+            inFlightReceipts.delete(id)
+          }
+        }
+      },
+      (err) => {
+        console.error('[print-bridge] Snapshot error (receipts)', err)
+      },
     )
   } else {
     console.log('[print-bridge] Receipt printing disabled (PRINT_RECEIPT_ON_PAID=0)')
@@ -695,9 +701,12 @@ async function main() {
         )
       }
 
-      const docs = changes
-        .filter((c) => c.type === 'added' || c.type === 'modified')
-        .map((c) => ({ id: c.doc.id, ...(c.doc.data() ?? {}) }))
+      const byId = new Map()
+      for (const c of changes) {
+        if (c.type !== 'added' && c.type !== 'modified') continue
+        byId.set(String(c.doc.id), { id: c.doc.id, ...(c.doc.data() ?? {}) })
+      }
+      const docs = Array.from(byId.values())
 
       for (const t of docs) {
         const id = String(t?.id ?? '')
