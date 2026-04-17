@@ -141,6 +141,7 @@ export default function MenuPublicoPage() {
   const [fatalErr, setFatalErr] = useState<string | null>(null)
   const [callBusy, setCallBusy] = useState(false)
   const [callMessage, setCallMessage] = useState<string | null>(null)
+  const [openTakeoutTabs, setOpenTakeoutTabs] = useState<any[]>([])
   const [qtyByItemId, setQtyByItemId] = useState<Record<string, number>>({})
   const [qtyTick, setQtyTick] = useState(0)
   const [sizeByItemId, setSizeByItemId] = useState<Record<string, PizzaSize>>({})
@@ -173,6 +174,27 @@ export default function MenuPublicoPage() {
   useEffect(() => {
     setConfirmAddToExistingTab(false)
   }, [cartTableId])
+
+  useEffect(() => {
+    const q = query(collection(db, 'tabs'), where('status', '==', 'open'))
+    return onSnapshot(
+      q,
+      (snap) => {
+        const data = snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) }))
+        const takeouts = data
+          .filter((t) => String((t as any)?.tableId ?? '').startsWith('togo-'))
+          .sort((a, b) => {
+            const aMs = (a as any)?.openedAt?.toMillis ? (a as any).openedAt.toMillis() : 0
+            const bMs = (b as any)?.openedAt?.toMillis ? (b as any).openedAt.toMillis() : 0
+            return bMs - aMs
+          })
+        setOpenTakeoutTabs(takeouts)
+      },
+      () => {
+        setOpenTakeoutTabs([])
+      },
+    )
+  }, [])
 
   useEffect(() => {
     const onError = (ev: ErrorEvent) => {
@@ -377,10 +399,33 @@ export default function MenuPublicoPage() {
   }
 
   const allowedTables = Object.keys(tableLabelById)
+  const takeoutLabelById = React.useMemo(() => {
+    const out: Record<string, string> = {}
+    for (const t of openTakeoutTabs) {
+      const id = String((t as any)?.tableId ?? '').trim()
+      if (!id) continue
+      const n = Number(String(id).replace('togo-', ''))
+      const base = Number.isFinite(n) && n > 0 ? `Para llevar #${n}` : 'Para llevar'
+      const name = String((t as any)?.tabName ?? '').trim()
+      out[id] = name ? `${base} · ${name}` : base
+    }
+    return out
+  }, [openTakeoutTabs])
+  const openTakeoutTableIds = React.useMemo(() => new Set(Object.keys(takeoutLabelById)), [takeoutLabelById])
   const rawTableId = (searchParams.get('mesa') ?? '').trim()
   const wantsTakeout = String(searchParams.get('togo') ?? '').trim() === '1' || rawTableId === TAKEOUT_VALUE
-  const tableId = wantsTakeout ? TAKEOUT_VALUE : allowedTables.includes(rawTableId) ? rawTableId : null
-  const tableLabel = tableId ? (tableId === TAKEOUT_VALUE ? 'Para llevar' : tableLabelById[tableId]) : null
+  const tableId = wantsTakeout
+    ? TAKEOUT_VALUE
+    : allowedTables.includes(rawTableId)
+      ? rawTableId
+      : openTakeoutTableIds.has(rawTableId)
+        ? rawTableId
+        : null
+  const tableLabel = tableId
+    ? tableId === TAKEOUT_VALUE
+      ? 'Para llevar'
+      : tableLabelById[tableId] ?? takeoutLabelById[tableId] ?? tableId
+    : null
 
   useEffect(() => {
     const title = tableLabel ? `Patanegra · ${tableLabel}` : 'Patanegra · Menú'
@@ -913,7 +958,12 @@ export default function MenuPublicoPage() {
           role="status"
           aria-live="polite"
           onClick={() => {
-            setCartTableId(TAKEOUT_VALUE)
+            setCartTableId((prev) => {
+              if (String(prev ?? '').trim()) return prev
+              if (tableId) return String(tableId)
+              const firstOpenTakeout = Object.keys(takeoutLabelById)[0]
+              return firstOpenTakeout ? String(firstOpenTakeout) : TAKEOUT_VALUE
+            })
             setCartOpen(true)
           }}
         >
@@ -948,11 +998,22 @@ export default function MenuPublicoPage() {
               >
                 <option value="">Selecciona mesa…</option>
                 <option value={TAKEOUT_VALUE}>Para llevar</option>
+                {Object.keys(takeoutLabelById).length ? (
+                  <optgroup label="Para llevar (abiertos)">
+                    {Object.keys(takeoutLabelById).map((t) => (
+                      <option key={t} value={t}>
+                        {takeoutLabelById[t] ?? t}
+                      </option>
+                    ))}
+                  </optgroup>
+                ) : null}
+                <optgroup label="Mesas">
                 {allowedTables.map((t) => (
                   <option key={t} value={t}>
                     {tableLabelById[t] ?? t}
                   </option>
                 ))}
+                </optgroup>
               </select>
             </div>
 
@@ -1086,7 +1147,7 @@ export default function MenuPublicoPage() {
                   setSendMsg('Selecciona una mesa válida.')
                   return
                 }
-                if (chosen !== TAKEOUT_VALUE && !allowedTables.includes(chosen)) {
+                if (chosen !== TAKEOUT_VALUE && !allowedTables.includes(chosen) && !openTakeoutTableIds.has(chosen)) {
                   setSendMsg('Selecciona una mesa válida.')
                   return
                 }
@@ -1113,7 +1174,7 @@ export default function MenuPublicoPage() {
                 setSendBusy(true)
                 try {
                   let effectiveTableId = chosen
-                  let effectiveTableLabel = tableLabelById[chosen] ?? chosen
+                  let effectiveTableLabel = tableLabelById[chosen] ?? takeoutLabelById[chosen] ?? chosen
                   let tabId: string | null = null
                   let prevTotal = 0
 

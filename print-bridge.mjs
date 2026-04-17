@@ -354,15 +354,32 @@ async function ticketText(order, { db }) {
 
 function withEscPos(text) {
   const useEscPos = env('ESCPOS', '1') === '1'
-  if (!useEscPos) return Buffer.from(String(text ?? ''), 'utf8')
+  const stripDiacritics = env('PRINT_STRIP_DIACRITICS', '0') === '1'
+  const encoding = env('PRINT_ENCODING', useEscPos ? 'latin1' : 'utf8')
+  const raw = String(text ?? '')
+  const normalized = stripDiacritics
+    ? raw
+        .normalize('NFD')
+        .replace(/\p{Diacritic}/gu, '')
+        .replace(/“|”/g, '"')
+        .replace(/‘|’/g, "'")
+    : raw
+  if (!useEscPos) return Buffer.from(normalized, encoding)
   const cut = env('ESCPOS_CUT', '1') === '1'
   const init = Buffer.from([0x1b, 0x40])
-  const body = Buffer.from(String(text ?? ''), 'utf8')
-  const feeds = Buffer.from('\n\n\n', 'utf8')
+
+  const escposCodepageRaw = String(env('ESCPOS_CODEPAGE', '') ?? '').trim()
+  const escposCodepage = escposCodepageRaw ? Number(escposCodepageRaw) : null
+  const codepageCmd = Number.isFinite(escposCodepage)
+    ? Buffer.from([0x1b, 0x74, Number(escposCodepage) & 0xff])
+    : Buffer.alloc(0)
+
+  const body = Buffer.from(normalized, encoding)
+  const feeds = Buffer.from('\n\n\n', encoding)
   // Use a cut command variant without NUL bytes to avoid issues with some pipelines.
   // GS V 1  (partial cut) is commonly supported.
   const cutCmd = cut ? Buffer.from([0x1d, 0x56, 0x01]) : Buffer.alloc(0)
-  return Buffer.concat([init, Buffer.from('\n', 'utf8'), body, feeds, cutCmd])
+  return Buffer.concat([init, codepageCmd, Buffer.from('\n', encoding), body, feeds, cutCmd])
 }
 
 function receiptText(tab) {
