@@ -1,6 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import net from 'node:net'
+import { fileURLToPath } from 'node:url'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 
@@ -82,8 +83,22 @@ async function printViaSocket({ host, port, payload }) {
 
 function loadDotEnvIfPresent() {
   try {
-    const envPath = path.join(process.cwd(), '.env')
-    if (!fs.existsSync(envPath)) return
+    const candidates = []
+    try {
+      candidates.push(path.join(process.cwd(), '.env'))
+    } catch {
+      // ignore
+    }
+    try {
+      const here = path.dirname(fileURLToPath(import.meta.url))
+      candidates.push(path.join(here, '.env'))
+    } catch {
+      // ignore
+    }
+
+    const envPath = candidates.find((p) => p && fs.existsSync(p))
+    if (!envPath) return
+
     const raw = fs.readFileSync(envPath, 'utf8')
     for (const line of raw.split('\n')) {
       const s = line.trim()
