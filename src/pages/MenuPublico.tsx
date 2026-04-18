@@ -146,11 +146,13 @@ export default function MenuPublicoPage() {
   const [qtyTick, setQtyTick] = useState(0)
   const [sizeByItemId, setSizeByItemId] = useState<Record<string, PizzaSize>>({})
   const [halfOtherByItemId, setHalfOtherByItemId] = useState<Record<string, string>>({})
+  const [noteByItemId, setNoteByItemId] = useState<Record<string, string>>({})
   const [cartOpen, setCartOpen] = useState(false)
   const [sendBusy, setSendBusy] = useState(false)
   const [sendMsg, setSendMsg] = useState<string | null>(null)
   const [cartTableId, setCartTableId] = useState<string>('')
   const [takeoutName, setTakeoutName] = useState<string>('')
+  const [extraSalsa, setExtraSalsa] = useState(false)
   const [confirmAddToExistingTab, setConfirmAddToExistingTab] = useState(false)
 
   const isStaff = Boolean(user?.role)
@@ -288,6 +290,15 @@ export default function MenuPublicoPage() {
   }, [viewCategories])
 
   const normalizeText = React.useCallback((s: string) => s.toLowerCase().normalize('NFD').replace(/\p{Diacritic}/gu, ''), [])
+
+  const isPizzaItem = React.useCallback(
+    (it: Item) => {
+      const catName = String(categoryNameById.get(it.categoryId) ?? it.categoryId)
+      const n = normalizeText(catName)
+      return n.includes('pizza')
+    },
+    [categoryNameById, normalizeText],
+  )
 
   const itemType = React.useCallback(
     (it: Item) => {
@@ -1053,6 +1064,18 @@ export default function MenuPublicoPage() {
                         </strong>{' '}
                         <span className="muted">({money(lineUnitPrice(item))} x {Number(qty ?? 0)})</span>
                       </div>
+
+                      <div style={{ height: 6 }} />
+                      <input
+                        className="input"
+                        placeholder="Especificaciones (ej. sin jamón, sin cebolla…)"
+                        value={noteByItemId[item.id] ?? ''}
+                        onChange={(e) => {
+                          const v = e.target.value
+                          setNoteByItemId((p) => ({ ...p, [item.id]: v }))
+                        }}
+                        style={{ maxWidth: 420 }}
+                      />
                     </div>
                     <div className="row" style={{ justifyContent: 'flex-end' }}>
                       {itemHasSizes(item) ? (
@@ -1150,6 +1173,11 @@ export default function MenuPublicoPage() {
 
             <div style={{ height: 12 }} />
 
+            <label className="row" style={{ gap: 8, alignItems: 'center' }}>
+              <input type="checkbox" checked={extraSalsa} onChange={(e) => setExtraSalsa(e.target.checked)} />
+              <span className="muted" style={{ fontSize: 12 }}>Extra salsa (+{money(20)})</span>
+            </label>
+
             <button
               className="button"
               disabled={sendBusy || selectedLines.length === 0}
@@ -1179,10 +1207,17 @@ export default function MenuPublicoPage() {
                 const kitchenLines = selectedLines.filter((l) => !isBarItem(l.item))
                 const barLines = selectedLines.filter((l) => isBarItem(l.item))
 
+                const isTakeoutOrder = chosen === TAKEOUT_VALUE || String(chosen).startsWith('togo-')
+                const pizzasQty = selectedLines.reduce((sum, l) => (isPizzaItem(l.item) ? sum + Number(l.qty ?? 0) : sum), 0)
+                const boxQty = isTakeoutOrder ? pizzasQty : 0
+                const boxTotal = boxQty > 0 ? Math.round(boxQty * 5 * 100) / 100 : 0
+                const salsaTotal = extraSalsa ? 20 : 0
+
                 const orderDelta = selectedLines.reduce((sum, l) => {
                   const unit = lineUnitPrice(l.item)
                   return sum + unit * Number(l.qty ?? 0)
                 }, 0)
+                const orderDeltaWithExtras = Math.round((orderDelta + boxTotal + salsaTotal) * 100) / 100
 
                 setSendBusy(true)
                 try {
@@ -1275,17 +1310,56 @@ export default function MenuPublicoPage() {
                     await addDoc(collection(db, 'orders'), {
                       ...base,
                       area: 'kitchen',
-                      items: kitchenLines.map((l) => ({
-                        itemId: l.item.id,
-                        name: lineLabel(l.item),
-                        qty: l.qty,
-                        categoryId: l.item.categoryId,
-                        size: itemHasSizes(l.item) ? (sizeByItemId[l.item.id] ?? 'cm30') : null,
-                        halfItemId: itemHasSizes(l.item) ? (halfOtherByItemId[l.item.id] ?? null) : null,
-                        halfName: itemHasSizes(l.item) ? (halfOtherByItemId[l.item.id] ? itemById.get(String(halfOtherByItemId[l.item.id]))?.name ?? null : null) : null,
-                        unitPrice: lineUnitPrice(l.item),
-                        lineTotal: Math.round(lineUnitPrice(l.item) * Number(l.qty ?? 0) * 100) / 100,
-                      })),
+                      items: [
+                        ...kitchenLines.map((l) => ({
+                          itemId: l.item.id,
+                          name: lineLabel(l.item),
+                          qty: l.qty,
+                          categoryId: l.item.categoryId,
+                          size: itemHasSizes(l.item) ? (sizeByItemId[l.item.id] ?? 'cm30') : null,
+                          halfItemId: itemHasSizes(l.item) ? (halfOtherByItemId[l.item.id] ?? null) : null,
+                          halfName: itemHasSizes(l.item)
+                            ? halfOtherByItemId[l.item.id]
+                              ? itemById.get(String(halfOtherByItemId[l.item.id]))?.name ?? null
+                              : null
+                            : null,
+                          note: String(noteByItemId[l.item.id] ?? '').trim() || null,
+                          unitPrice: lineUnitPrice(l.item),
+                          lineTotal: Math.round(lineUnitPrice(l.item) * Number(l.qty ?? 0) * 100) / 100,
+                        })),
+                        ...(boxQty > 0
+                          ? [
+                              {
+                                itemId: '__pizza_box__',
+                                name: 'Caja para pizza',
+                                qty: boxQty,
+                                categoryId: '__extra__',
+                                size: null,
+                                halfItemId: null,
+                                halfName: null,
+                                note: null,
+                                unitPrice: 5,
+                                lineTotal: boxTotal,
+                              },
+                            ]
+                          : []),
+                        ...(extraSalsa
+                          ? [
+                              {
+                                itemId: '__extra_salsa__',
+                                name: 'Extra salsa',
+                                qty: 1,
+                                categoryId: '__extra__',
+                                size: null,
+                                halfItemId: null,
+                                halfName: null,
+                                note: null,
+                                unitPrice: 20,
+                                lineTotal: 20,
+                              },
+                            ]
+                          : []),
+                      ],
                     })
                   }
                   if (barLines.length) {
@@ -1300,6 +1374,7 @@ export default function MenuPublicoPage() {
                         size: itemHasSizes(l.item) ? (sizeByItemId[l.item.id] ?? 'cm30') : null,
                         halfItemId: itemHasSizes(l.item) ? (halfOtherByItemId[l.item.id] ?? null) : null,
                         halfName: itemHasSizes(l.item) ? (halfOtherByItemId[l.item.id] ? itemById.get(String(halfOtherByItemId[l.item.id]))?.name ?? null : null) : null,
+                        note: String(noteByItemId[l.item.id] ?? '').trim() || null,
                         unitPrice: lineUnitPrice(l.item),
                         lineTotal: Math.round(lineUnitPrice(l.item) * Number(l.qty ?? 0) * 100) / 100,
                       })),
@@ -1307,13 +1382,15 @@ export default function MenuPublicoPage() {
                   }
 
                   if (tabId) {
-                    const nextTotal = Math.max(0, Math.round((prevTotal + orderDelta) * 100) / 100)
+                    const nextTotal = Math.max(0, Math.round((prevTotal + orderDeltaWithExtras) * 100) / 100)
                     await updateDoc(doc(db, 'tabs', tabId), { total: nextTotal, updatedAt: serverTimestamp() })
                   }
 
                   setQtyByItemId({})
                   setSizeByItemId({})
                   setHalfOtherByItemId({})
+                  setNoteByItemId({})
+                  setExtraSalsa(false)
                   bumpQty()
                   setCartOpen(false)
                   setCallMessage('Orden agregada con éxito.')

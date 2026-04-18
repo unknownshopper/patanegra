@@ -358,8 +358,13 @@ async function ticketText(order, { db }) {
     lines.push(`${padRight(qtyStr, 4)} ${name}`.slice(0, 32))
     const size = it?.size ? String(it.size) : ''
     const half = it?.halfName ? String(it.halfName) : ''
+    const note = String(it?.note ?? '').trim()
     if (size) lines.push(`     ${size}`.slice(0, 32))
     if (half) lines.push(`     1/2 + ${half}`.slice(0, 32))
+    if (note) {
+      const compact = note.replace(/\s+/g, ' ').trim()
+      lines.push(`     * ${compact}`.slice(0, 32))
+    }
   }
 
   lines.push('')
