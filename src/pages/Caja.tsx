@@ -310,11 +310,12 @@ export default function CajaPage() {
         tabs: Tab[]
         sum: number
         byMethod: { efectivo: number; terminal: number; transferencia: number; cortesia: number; legacy: number }
+        masa: { cm20: number; cm30: number }
       }
     > = {
-      day: { tabs: [], sum: 0, byMethod: { efectivo: 0, terminal: 0, transferencia: 0, cortesia: 0, legacy: 0 } },
-      week: { tabs: [], sum: 0, byMethod: { efectivo: 0, terminal: 0, transferencia: 0, cortesia: 0, legacy: 0 } },
-      month: { tabs: [], sum: 0, byMethod: { efectivo: 0, terminal: 0, transferencia: 0, cortesia: 0, legacy: 0 } },
+      day: { tabs: [], sum: 0, byMethod: { efectivo: 0, terminal: 0, transferencia: 0, cortesia: 0, legacy: 0 }, masa: { cm20: 0, cm30: 0 } },
+      week: { tabs: [], sum: 0, byMethod: { efectivo: 0, terminal: 0, transferencia: 0, cortesia: 0, legacy: 0 }, masa: { cm20: 0, cm30: 0 } },
+      month: { tabs: [], sum: 0, byMethod: { efectivo: 0, terminal: 0, transferencia: 0, cortesia: 0, legacy: 0 }, masa: { cm20: 0, cm30: 0 } },
     }
 
     const compute = (key: 'day' | 'week' | 'month', start: number, end: number) => {
@@ -333,6 +334,7 @@ export default function CajaPage() {
 
       let sum = 0
       const byMethod = { efectivo: 0, terminal: 0, transferencia: 0, cortesia: 0, legacy: 0 }
+      const masa = { cm20: 0, cm30: 0 }
 
       for (const t of rows) {
         const isPaid = Boolean((t as any)?.paidAt?.toMillis)
@@ -344,14 +346,29 @@ export default function CajaPage() {
         ;(byMethod as any)[m] = Number((byMethod as any)[m] ?? 0) + total
       }
 
-      byKey[key] = { tabs: rows, sum, byMethod }
+      const tabIds = new Set(rows.map((t) => String((t as any)?.id ?? (t as any))) )
+      for (const o of orders) {
+        if (!o) continue
+        if (!tabIds.has(String((o as any)?.tabId ?? ''))) continue
+        const its = Array.isArray((o as any)?.items) ? (o as any).items : []
+        for (const it of its) {
+          const q = Number(it?.qty ?? 0)
+          if (!Number.isFinite(q) || q <= 0) continue
+          const s = String(it?.size ?? '').trim()
+          const n = String(it?.name ?? '').trim()
+          if (s === 'cm20' || /\(\s*20\s*\)/.test(n)) masa.cm20 += q
+          if (s === 'cm30' || /\(\s*30\s*\)/.test(n)) masa.cm30 += q
+        }
+      }
+
+      byKey[key] = { tabs: rows, sum, byMethod, masa }
     }
 
     compute('day', report.dayStart, report.dayStart + 24 * 60 * 60 * 1000)
     compute('week', report.weekStart, report.weekEnd)
     compute('month', report.monthStart, report.monthEnd)
     return byKey
-  }, [paidOrLegacyTabs, report])
+  }, [paidOrLegacyTabs, report, orders])
 
   const tabOrdersBreakdown = React.useCallback(
     (t: Tab) => {
@@ -688,6 +705,12 @@ export default function CajaPage() {
               <div className="muted" style={{ fontSize: 12 }}>
                 Transferencia: <strong style={{ color: '#111827' }}>{money(reportDetails.day.byMethod.transferencia)}</strong>
               </div>
+              <div className="muted" style={{ fontSize: 12 }}>
+                Masa 20: <strong style={{ color: '#111827' }}>{String(reportDetails.day.masa.cm20)}</strong>
+              </div>
+              <div className="muted" style={{ fontSize: 12 }}>
+                Masa 30: <strong style={{ color: '#111827' }}>{String(reportDetails.day.masa.cm30)}</strong>
+              </div>
             </button>
             <button className="card" style={{ margin: 0, textAlign: 'left', cursor: 'pointer' }} onClick={() => setReportOpen((p) => (p === 'week' ? null : 'week'))}>
               <div className="muted" style={{ fontSize: 12 }}>Semana</div>
@@ -701,6 +724,12 @@ export default function CajaPage() {
               <div className="muted" style={{ fontSize: 12 }}>
                 Transferencia: <strong style={{ color: '#111827' }}>{money(reportDetails.week.byMethod.transferencia)}</strong>
               </div>
+              <div className="muted" style={{ fontSize: 12 }}>
+                Masa 20: <strong style={{ color: '#111827' }}>{String(reportDetails.week.masa.cm20)}</strong>
+              </div>
+              <div className="muted" style={{ fontSize: 12 }}>
+                Masa 30: <strong style={{ color: '#111827' }}>{String(reportDetails.week.masa.cm30)}</strong>
+              </div>
             </button>
             <button className="card" style={{ margin: 0, textAlign: 'left', cursor: 'pointer' }} onClick={() => setReportOpen((p) => (p === 'month' ? null : 'month'))}>
               <div className="muted" style={{ fontSize: 12 }}>Mes</div>
@@ -713,6 +742,12 @@ export default function CajaPage() {
               </div>
               <div className="muted" style={{ fontSize: 12 }}>
                 Transferencia: <strong style={{ color: '#111827' }}>{money(reportDetails.month.byMethod.transferencia)}</strong>
+              </div>
+              <div className="muted" style={{ fontSize: 12 }}>
+                Masa 20: <strong style={{ color: '#111827' }}>{String(reportDetails.month.masa.cm20)}</strong>
+              </div>
+              <div className="muted" style={{ fontSize: 12 }}>
+                Masa 30: <strong style={{ color: '#111827' }}>{String(reportDetails.month.masa.cm30)}</strong>
               </div>
             </button>
           </div>
@@ -748,6 +783,14 @@ export default function CajaPage() {
                   <div className="row" style={{ justifyContent: 'space-between' }}>
                     <div className="muted" style={{ fontSize: 12 }}>Transferencia</div>
                     <div style={{ fontWeight: 950 }}>{money(reportDetails[reportOpen].byMethod.transferencia)}</div>
+                  </div>
+                  <div className="row" style={{ justifyContent: 'space-between' }}>
+                    <div className="muted" style={{ fontSize: 12 }}>Masa 20</div>
+                    <div style={{ fontWeight: 950 }}>{String(reportDetails[reportOpen].masa.cm20)}</div>
+                  </div>
+                  <div className="row" style={{ justifyContent: 'space-between' }}>
+                    <div className="muted" style={{ fontSize: 12 }}>Masa 30</div>
+                    <div style={{ fontWeight: 950 }}>{String(reportDetails[reportOpen].masa.cm30)}</div>
                   </div>
                 </div>
 
