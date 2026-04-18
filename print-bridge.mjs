@@ -392,14 +392,17 @@ function withEscPos(text) {
     ? Buffer.from([0x1b, 0x74, Number(escposCodepage) & 0xff])
     : Buffer.alloc(0)
 
+  const emphasizeCmd = charSize === 1 ? Buffer.from([0x1b, 0x45, 0x01]) : Buffer.alloc(0)
+
   const sizeCmd = charSize === 1 ? Buffer.alloc(0) : Buffer.from([0x1d, 0x21, ((charSize - 1) << 4) | (charSize - 1)])
 
   const body = Buffer.from(normalized, encoding)
   const feeds = Buffer.from('\n\n\n', encoding)
+  const emphasizeOffCmd = charSize === 1 ? Buffer.from([0x1b, 0x45, 0x00]) : Buffer.alloc(0)
   // Use a cut command variant without NUL bytes to avoid issues with some pipelines.
   // GS V 1  (partial cut) is commonly supported.
   const cutCmd = cut ? Buffer.from([0x1d, 0x56, 0x01]) : Buffer.alloc(0)
-  return Buffer.concat([init, codepageCmd, sizeCmd, Buffer.from('\n', encoding), body, feeds, cutCmd])
+  return Buffer.concat([init, codepageCmd, emphasizeCmd, sizeCmd, Buffer.from('\n', encoding), body, emphasizeOffCmd, feeds, cutCmd])
 }
 
 function receiptText(tab) {
