@@ -220,6 +220,8 @@ export default function CajaPage() {
   }, [payCourtesy, payCourtesyPct, payMethod, payTab?.total, tipCustom, tipMode])
 
   const [reportOpen, setReportOpen] = React.useState<'day' | 'week' | 'month' | null>(null)
+  const [reportDayOpen, setReportDayOpen] = React.useState<string | null>(null)
+  const [reportTabOpen, setReportTabOpen] = React.useState<string | null>(null)
   const [expandedSaleId, setExpandedSaleId] = React.useState<string | null>(null)
   const [expandedTabId, setExpandedTabId] = React.useState<string | null>(null)
 
@@ -369,6 +371,49 @@ export default function CajaPage() {
     compute('month', report.monthStart, report.monthEnd)
     return byKey
   }, [paidOrLegacyTabs, report, orders])
+
+  const reportDayDrilldown = React.useMemo(() => {
+    const dayMs = 24 * 60 * 60 * 1000
+    const d = new Date(now)
+    const todayStart = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0, 0).getTime()
+
+    const mk = (startMs: number, endMs: number) => {
+      const tabsInDay = paidOrLegacyTabs
+        .filter((t) => {
+          const paidAtMs = (t as any)?.paidAt?.toMillis ? (t as any).paidAt.toMillis() : null
+          const legacyAtMs = (t as any)?.closedAt?.toMillis ? (t as any).closedAt.toMillis() : null
+          const ms = paidAtMs ?? legacyAtMs
+          return ms != null && ms >= startMs && ms < endMs
+        })
+        .sort((a, b) => {
+          const aMs = ((a as any)?.paidAt?.toMillis ? (a as any).paidAt.toMillis() : (a as any)?.closedAt?.toMillis ? (a as any).closedAt.toMillis() : 0) as number
+          const bMs = ((b as any)?.paidAt?.toMillis ? (b as any).paidAt.toMillis() : (b as any)?.closedAt?.toMillis ? (b as any).closedAt.toMillis() : 0) as number
+          return bMs - aMs
+        })
+
+      let sum = 0
+      for (const t of tabsInDay) {
+        const isPaid = Boolean((t as any)?.paidAt?.toMillis)
+        const total = isPaid ? Number((t as any).paidTotal ?? (t as any).total ?? 0) : Number((t as any).total ?? 0)
+        sum += total
+      }
+
+      const label = new Date(startMs).toLocaleDateString('es-MX', { weekday: 'short', day: '2-digit', month: '2-digit' })
+      return { startMs, endMs, label, tabs: tabsInDay, sum }
+    }
+
+    const weekDays = Array.from({ length: 7 }, (_, i) => {
+      const startMs = todayStart - i * dayMs
+      return mk(startMs, startMs + dayMs)
+    })
+
+    const monthDays = Array.from({ length: 31 }, (_, i) => {
+      const startMs = todayStart - i * dayMs
+      return mk(startMs, startMs + dayMs)
+    })
+
+    return { weekDays, monthDays }
+  }, [now, paidOrLegacyTabs])
 
   const tabOrdersBreakdown = React.useCallback(
     (t: Tab) => {
@@ -797,96 +842,206 @@ export default function CajaPage() {
                 <div style={{ height: 12 }} />
 
                 <div style={{ display: 'grid', gap: 8 }}>
-                  {reportDetails[reportOpen].tabs.length === 0 ? <div className="muted">Sin ventas en este rango.</div> : null}
-                  {reportDetails[reportOpen].tabs.slice(0, 200).map((t) => {
-                    const dt = (t as any)?.paidAt?.toDate ? (t as any).paidAt.toDate() : (t as any)?.closedAt?.toDate ? (t as any).closedAt.toDate() : null
-                    const isPaid = Boolean((t as any)?.paidAt?.toMillis)
-                    const subtotal = Number((t as any).total ?? 0)
-                    const tip = isPaid ? Number((t as any).tipAmount ?? 0) : 0
-                    const total = isPaid ? Number((t as any).paidTotal ?? (t as any).total ?? 0) : Number((t as any).total ?? 0)
-                    const method = isPaid ? String((t as any).paymentMethod ?? '') : 'legacy'
-                    const id = String((t as any).id)
-                    const expanded = expandedSaleId === id
-                    const breakdown = expanded ? tabOrdersBreakdown(t) : null
-                    return (
-                      <div
-                        key={id}
-                        className="card"
-                        style={{ margin: 0, padding: 10, cursor: 'pointer' }}
-                        onClick={() => setExpandedSaleId((p) => (p === id ? null : id))}
-                      >
-                        <div className="row" style={{ justifyContent: 'space-between' }}>
-                          <div className="muted" style={{ fontSize: 12 }}>
-                            {(t as any).tableId ?? '—'}{(t as any).tabName ? ` · ${(t as any).tabName}` : ''} · {method}
-                            {dt ? ` · ${dt.toLocaleString('es-MX', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' })}` : ''}
+                  {reportOpen === 'day' ? (
+                    <>
+                      {reportDetails[reportOpen].tabs.length === 0 ? <div className="muted">Sin ventas en este rango.</div> : null}
+                      {reportDetails[reportOpen].tabs.slice(0, 200).map((t) => {
+                        const dt = (t as any)?.paidAt?.toDate ? (t as any).paidAt.toDate() : (t as any)?.closedAt?.toDate ? (t as any).closedAt.toDate() : null
+                        const isPaid = Boolean((t as any)?.paidAt?.toMillis)
+                        const subtotal = Number((t as any).total ?? 0)
+                        const tip = isPaid ? Number((t as any).tip ?? 0) : 0
+                        const paidTotal = isPaid ? Number((t as any).paidTotal ?? subtotal ?? 0) : subtotal
+                        return (
+                          <div key={String((t as any)?.id ?? '')}>
+                            <button
+                              className="card"
+                              style={{ margin: 0, width: '100%', textAlign: 'left', cursor: 'pointer' }}
+                              onClick={() => setExpandedSaleId((p) => (p === String((t as any)?.id ?? '') ? null : String((t as any)?.id ?? '')))}
+                            >
+                              <div className="row" style={{ justifyContent: 'space-between', gap: 12 }}>
+                                <div className="muted" style={{ fontSize: 12 }}>
+                                  {String((t as any)?.tableId ?? '—')}
+                                  {(t as any)?.tabName ? ` · ${String((t as any)?.tabName ?? '')}` : ''}
+                                  {dt ? ` · ${dt.toLocaleString('es-MX', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' })}` : ''}
+                                </div>
+                                <div style={{ fontWeight: 950 }}>{money(paidTotal)}</div>
+                              </div>
+                              {isPaid ? (
+                                <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>
+                                  Método: <strong style={{ color: '#111827' }}>{String((t as any)?.paymentMethod ?? '—')}</strong>
+                                  {tip ? ` · Propina: ${money(tip)}` : ''}
+                                </div>
+                              ) : (
+                                <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>Cierre legacy (sin método)</div>
+                              )}
+                            </button>
+
+                            {expandedSaleId === String((t as any)?.id ?? '') ? (
+                              <div style={{ marginTop: 8 }}>
+                                <div className="card" style={{ margin: 0, padding: 10 }}>
+                                  {(() => {
+                                    const breakdown = tabOrdersBreakdown(t)
+                                    return (
+                                      <div className="row" style={{ justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                                        <div style={{ flex: 1 }}>
+                                          <div className="muted" style={{ fontSize: 12, marginBottom: 6 }}>Alimentos</div>
+                                          {breakdown.food.length === 0 ? <div className="muted" style={{ fontSize: 12 }}>Sin items.</div> : null}
+                                          <div style={{ display: 'grid', gap: 4 }}>
+                                            {breakdown.food.slice(0, 60).map((x) => (
+                                              <div key={x.name} className="row" style={{ justifyContent: 'space-between' }}>
+                                                <div>{x.name}</div>
+                                                <div className="row" style={{ gap: 10, justifyContent: 'flex-end' }}>
+                                                  <div style={{ fontWeight: 900 }}>x{x.qty}</div>
+                                                  <div style={{ fontWeight: 950 }}>{x.amount ? money(Number(x.amount)) : '—'}</div>
+                                                </div>
+                                              </div>
+                                            ))}
+                                          </div>
+                                        </div>
+
+                                        <div style={{ width: 14 }} />
+
+                                        <div style={{ flex: 1 }}>
+                                          <div className="muted" style={{ fontSize: 12, marginBottom: 6 }}>Bebidas</div>
+                                          {breakdown.drinks.length === 0 ? <div className="muted" style={{ fontSize: 12 }}>Sin items.</div> : null}
+                                          <div style={{ display: 'grid', gap: 4 }}>
+                                            {breakdown.drinks.slice(0, 60).map((x) => (
+                                              <div key={x.name} className="row" style={{ justifyContent: 'space-between' }}>
+                                                <div>{x.name}</div>
+                                                <div className="row" style={{ gap: 10, justifyContent: 'flex-end' }}>
+                                                  <div style={{ fontWeight: 900 }}>x{x.qty}</div>
+                                                  <div style={{ fontWeight: 950 }}>{x.amount ? money(Number(x.amount)) : '—'}</div>
+                                                </div>
+                                              </div>
+                                            ))}
+                                          </div>
+                                        </div>
+                                      </div>
+                                    )
+                                  })()}
+                                </div>
+                              </div>
+                            ) : null}
                           </div>
-                          <div style={{ fontWeight: 950 }}>{money(total)}</div>
-                        </div>
-
-                        <div style={{ height: 6 }} />
-
-                        <div className="row" style={{ justifyContent: 'space-between' }}>
-                          <div className="muted" style={{ fontSize: 12 }}>Consumo</div>
-                          <div style={{ fontWeight: 900 }}>{money(subtotal)}</div>
-                        </div>
-                        <div className="row" style={{ justifyContent: 'space-between' }}>
-                          <div className="muted" style={{ fontSize: 12 }}>Propina</div>
-                          <div style={{ fontWeight: 900 }}>{money(tip)}</div>
-                        </div>
-
-                        {expanded && breakdown ? (
-                          <>
-                            <div style={{ height: 10 }} />
-                            <div className="row" style={{ justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                              <div style={{ flex: 1 }}>
-                                <div className="muted" style={{ fontSize: 12, marginBottom: 6 }}>Alimentos</div>
-                                {breakdown.food.length === 0 ? <div className="muted" style={{ fontSize: 12 }}>Sin items.</div> : null}
-                                <div style={{ display: 'grid', gap: 4 }}>
-                                  {breakdown.food.slice(0, 30).map((x) => (
-                                    <div key={x.name} className="row" style={{ justifyContent: 'space-between' }}>
-                                      <div>{x.name}</div>
-                                      <div className="row" style={{ gap: 10, justifyContent: 'flex-end' }}>
-                                        <div style={{ fontWeight: 900 }}>x{x.qty}</div>
-                                        <div style={{ fontWeight: 950 }}>{x.amount ? money(Number(x.amount)) : '—'}</div>
-                                      </div>
-                                    </div>
-                                  ))}
-                                </div>
-                                <div style={{ height: 6 }} />
-                                <div className="row" style={{ justifyContent: 'space-between' }}>
-                                  <div className="muted" style={{ fontSize: 12 }}>Total alimentos</div>
-                                  <div style={{ fontWeight: 950 }}>{breakdown.foodTotal ? money(Number(breakdown.foodTotal)) : '—'}</div>
-                                </div>
+                        )
+                      })}
+                    </>
+                  ) : (
+                    <>
+                      {((reportOpen === 'week' ? reportDayDrilldown.weekDays : reportDayDrilldown.monthDays) as any[]).map((dayRow: any) => {
+                        const dayKey = String(dayRow.startMs)
+                        const isOpen = reportDayOpen === dayKey
+                        return (
+                          <div key={dayKey}>
+                            <button
+                              className="card"
+                              style={{ margin: 0, width: '100%', textAlign: 'left', cursor: 'pointer' }}
+                              onClick={() => {
+                                setReportDayOpen((p) => (p === dayKey ? null : dayKey))
+                                setReportTabOpen(null)
+                                setExpandedSaleId(null)
+                              }}
+                            >
+                              <div className="row" style={{ justifyContent: 'space-between', gap: 12 }}>
+                                <div className="muted" style={{ fontSize: 12 }}>{dayRow.label}</div>
+                                <div style={{ fontWeight: 950 }}>{money(Number(dayRow.sum ?? 0))}</div>
                               </div>
+                              <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>{Number(dayRow.tabs?.length ?? 0)} cuenta(s)</div>
+                            </button>
 
-                              <div style={{ width: 14 }} />
+                            {isOpen ? (
+                              <div style={{ marginTop: 8, display: 'grid', gap: 8 }}>
+                                {Array.isArray(dayRow.tabs) && dayRow.tabs.length === 0 ? <div className="muted">Sin ventas en este día.</div> : null}
+                                {(Array.isArray(dayRow.tabs) ? dayRow.tabs : []).slice(0, 200).map((t: any) => {
+                                  const tabId = String((t as any)?.id ?? '')
+                                  const dt = (t as any)?.paidAt?.toDate ? (t as any).paidAt.toDate() : (t as any)?.closedAt?.toDate ? (t as any).closedAt.toDate() : null
+                                  const isPaid = Boolean((t as any)?.paidAt?.toMillis)
+                                  const subtotal = Number((t as any).total ?? 0)
+                                  const tip = isPaid ? Number((t as any).tip ?? 0) : 0
+                                  const paidTotal = isPaid ? Number((t as any).paidTotal ?? subtotal ?? 0) : subtotal
+                                  const openTab = reportTabOpen === tabId
 
-                              <div style={{ flex: 1 }}>
-                                <div className="muted" style={{ fontSize: 12, marginBottom: 6 }}>Bebidas</div>
-                                {breakdown.drinks.length === 0 ? <div className="muted" style={{ fontSize: 12 }}>Sin items.</div> : null}
-                                <div style={{ display: 'grid', gap: 4 }}>
-                                  {breakdown.drinks.slice(0, 30).map((x) => (
-                                    <div key={x.name} className="row" style={{ justifyContent: 'space-between' }}>
-                                      <div>{x.name}</div>
-                                      <div className="row" style={{ gap: 10, justifyContent: 'flex-end' }}>
-                                        <div style={{ fontWeight: 900 }}>x{x.qty}</div>
-                                        <div style={{ fontWeight: 950 }}>{x.amount ? money(Number(x.amount)) : '—'}</div>
-                                      </div>
+                                  return (
+                                    <div key={tabId}>
+                                      <button
+                                        className="card"
+                                        style={{ margin: 0, width: '100%', textAlign: 'left', cursor: 'pointer' }}
+                                        onClick={() => setReportTabOpen((p) => (p === tabId ? null : tabId))}
+                                      >
+                                        <div className="row" style={{ justifyContent: 'space-between', gap: 12 }}>
+                                          <div className="muted" style={{ fontSize: 12 }}>
+                                            {String((t as any)?.tableId ?? '—')}
+                                            {(t as any)?.tabName ? ` · ${String((t as any)?.tabName ?? '')}` : ''}
+                                            {dt ? ` · ${dt.toLocaleString('es-MX', { hour: '2-digit', minute: '2-digit' })}` : ''}
+                                          </div>
+                                          <div style={{ fontWeight: 950 }}>{money(paidTotal)}</div>
+                                        </div>
+                                        {isPaid ? (
+                                          <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>
+                                            Método: <strong style={{ color: '#111827' }}>{String((t as any)?.paymentMethod ?? '—')}</strong>
+                                            {tip ? ` · Propina: ${money(tip)}` : ''}
+                                          </div>
+                                        ) : (
+                                          <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>Cierre legacy (sin método)</div>
+                                        )}
+                                      </button>
+
+                                      {openTab ? (
+                                        <div style={{ marginTop: 8 }}>
+                                          <div className="card" style={{ margin: 0, padding: 10 }}>
+                                            {(() => {
+                                              const breakdown = tabOrdersBreakdown(t)
+                                              return (
+                                                <div className="row" style={{ justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                                                  <div style={{ flex: 1 }}>
+                                                    <div className="muted" style={{ fontSize: 12, marginBottom: 6 }}>Alimentos</div>
+                                                    {breakdown.food.length === 0 ? <div className="muted" style={{ fontSize: 12 }}>Sin items.</div> : null}
+                                                    <div style={{ display: 'grid', gap: 4 }}>
+                                                      {breakdown.food.slice(0, 60).map((x) => (
+                                                        <div key={x.name} className="row" style={{ justifyContent: 'space-between' }}>
+                                                          <div>{x.name}</div>
+                                                          <div className="row" style={{ gap: 10, justifyContent: 'flex-end' }}>
+                                                            <div style={{ fontWeight: 900 }}>x{x.qty}</div>
+                                                            <div style={{ fontWeight: 950 }}>{x.amount ? money(Number(x.amount)) : '—'}</div>
+                                                          </div>
+                                                        </div>
+                                                      ))}
+                                                    </div>
+                                                  </div>
+
+                                                  <div style={{ width: 14 }} />
+
+                                                  <div style={{ flex: 1 }}>
+                                                    <div className="muted" style={{ fontSize: 12, marginBottom: 6 }}>Bebidas</div>
+                                                    {breakdown.drinks.length === 0 ? <div className="muted" style={{ fontSize: 12 }}>Sin items.</div> : null}
+                                                    <div style={{ display: 'grid', gap: 4 }}>
+                                                      {breakdown.drinks.slice(0, 60).map((x) => (
+                                                        <div key={x.name} className="row" style={{ justifyContent: 'space-between' }}>
+                                                          <div>{x.name}</div>
+                                                          <div className="row" style={{ gap: 10, justifyContent: 'flex-end' }}>
+                                                            <div style={{ fontWeight: 900 }}>x{x.qty}</div>
+                                                            <div style={{ fontWeight: 950 }}>{x.amount ? money(Number(x.amount)) : '—'}</div>
+                                                          </div>
+                                                        </div>
+                                                      ))}
+                                                    </div>
+                                                  </div>
+                                                </div>
+                                              )
+                                            })()}
+                                          </div>
+                                        </div>
+                                      ) : null}
                                     </div>
-                                  ))}
-                                </div>
-                                <div style={{ height: 6 }} />
-                                <div className="row" style={{ justifyContent: 'space-between' }}>
-                                  <div className="muted" style={{ fontSize: 12 }}>Total bebidas</div>
-                                  <div style={{ fontWeight: 950 }}>{breakdown.drinksTotal ? money(Number(breakdown.drinksTotal)) : '—'}</div>
-                                </div>
+                                  )
+                                })}
                               </div>
-                            </div>
-                          </>
-                        ) : null}
-                      </div>
-                    )
-                  })}
+                            ) : null}
+                          </div>
+                        )
+                      })}
+                    </>
+                  )}
                 </div>
               </div>
             </>
