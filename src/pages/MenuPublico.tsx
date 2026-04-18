@@ -296,7 +296,17 @@ export default function MenuPublicoPage() {
       if (n.includes('pizza')) return 'pizzas' as const
       if (n.includes('calzone')) return 'calzones' as const
       if (n.includes('pan') || n.includes('focaccia') || n.includes('brioche')) return 'panes' as const
-      if (n.includes('bebida') || n.includes('refresco') || n.includes('soda') || n.includes('cafe') || n.includes('café')) return 'bebidas' as const
+      if (
+        n.includes('bebida') ||
+        n.includes('refresco') ||
+        n.includes('soda') ||
+        n.includes('cafe') ||
+        n.includes('agua') ||
+        n.includes('jarra') ||
+        n.includes('mezcalita') ||
+        n.includes('italiana')
+      )
+        return 'bebidas' as const
       return 'otros' as const
     },
     [categoryNameById, normalizeText],
@@ -328,13 +338,16 @@ export default function MenuPublicoPage() {
   }, [filteredCategories, productQuery, typeFilter, viewCategories])
 
   function isBarItem(it: Item) {
-    const name = (categoryNameById.get(it.categoryId) ?? it.categoryId).toLowerCase()
+    const name = normalizeText(String(categoryNameById.get(it.categoryId) ?? it.categoryId))
     return (
       name.includes('bebida') ||
       name.includes('refresco') ||
       name.includes('soda') ||
       name.includes('cafe') ||
-      name.includes('italianas')
+      name.includes('agua') ||
+      name.includes('jarra') ||
+      name.includes('mezcalita') ||
+      name.includes('italiana')
     )
   }
 
