@@ -132,6 +132,12 @@ rules_version = '2';
        allow delete: if isAdmin() || isPiso();
      }
 
+     match /orderVoids/{id} {
+       allow read: if isAdmin();
+       allow create: if isCaja() || isAdmin() || isGerente();
+       allow update, delete: if isAdmin();
+     }
+
      match /supplies/{id} {
        allow read: if isStaff();
        allow create: if isAdmin();

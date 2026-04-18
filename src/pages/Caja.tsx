@@ -506,6 +506,26 @@ export default function CajaPage() {
         const unit = unitPrice > 0 ? unitPrice : unitFromLineTotal
         const delta = Math.max(0, Math.round(unit * 100) / 100)
 
+        const afterQty = Math.max(0, curQty - 1)
+        const voidRef = doc(collection(db, 'orderVoids'))
+        tx.set(voidRef, {
+          tabId,
+          orderId,
+          tableId: String(tab?.tableId ?? ''),
+          itemId,
+          itemName: String(cur?.name ?? ''),
+          orderArea: String(order?.area ?? ''),
+          wasPrinted: Boolean(order?.printedAt?.toMillis ? order.printedAt.toMillis() : order?.printedAt),
+          beforeQty: curQty,
+          afterQty,
+          qtyRemoved: 1,
+          unitPrice: Number.isFinite(unit) ? unit : 0,
+          delta,
+          createdAt: serverTimestamp(),
+          createdByUid: user?.uid ?? null,
+          createdByName: user?.displayName ?? user?.email ?? null,
+        })
+
         if (curQty > 1) {
           const nextQty = curQty - 1
           items[idx] = {

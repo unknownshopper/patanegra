@@ -7,6 +7,7 @@ import {
   collection,
   deleteDoc,
   doc,
+  limit,
   runTransaction,
   serverTimestamp,
   onSnapshot,
@@ -14,6 +15,7 @@ import {
   query,
   setDoc,
   updateDoc,
+  where,
   writeBatch,
 } from 'firebase/firestore'
 import { db } from '../firebase'
@@ -382,6 +384,7 @@ export default function AdminPage() {
   const [opStartMs, setOpStartMs] = React.useState<number | null>(null)
   const [tabs, setTabs] = React.useState<any[]>([])
   const [orders, setOrders] = React.useState<any[]>([])
+  const [orderVoids, setOrderVoids] = React.useState<any[]>([])
   const [now, setNow] = React.useState(() => Date.now())
 
   const [selectedTableId, setSelectedTableId] = React.useState<string | null>(null)
@@ -711,6 +714,24 @@ export default function AdminPage() {
     return openTabByTableId.get(selectedTableId) ?? null
   }, [openTabByTableId, selectedTableId])
 
+  React.useEffect(() => {
+    const tabId = String(selectedOpenTab?.id ?? '')
+    if (!tabId) {
+      setOrderVoids([])
+      return
+    }
+    const q = query(collection(db, 'orderVoids'), where('tabId', '==', tabId), orderBy('createdAt', 'desc'), limit(100))
+    return onSnapshot(
+      q,
+      (snap) => {
+        setOrderVoids(snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) })))
+      },
+      () => {
+        setOrderVoids([])
+      },
+    )
+  }, [selectedOpenTab?.id])
+
   const selectedConsumption = React.useMemo(() => {
     if (!selectedTableId) return null
     const tab = openTabByTableId.get(selectedTableId)
@@ -774,6 +795,26 @@ export default function AdminPage() {
         const unitFromLineTotal = curQty > 0 ? Number(cur?.lineTotal ?? 0) / curQty : 0
         const unit = unitPrice > 0 ? unitPrice : unitFromLineTotal
         const delta = Math.max(0, Math.round(unit * 100) / 100)
+
+        const afterQty = Math.max(0, curQty - 1)
+        const voidRef = doc(collection(db, 'orderVoids'))
+        tx.set(voidRef, {
+          tabId,
+          orderId,
+          tableId: String(tab?.tableId ?? ''),
+          itemId,
+          itemName: String(cur?.name ?? ''),
+          orderArea: String(order?.area ?? ''),
+          wasPrinted: Boolean(order?.printedAt?.toMillis ? order.printedAt.toMillis() : order?.printedAt),
+          beforeQty: curQty,
+          afterQty,
+          qtyRemoved: 1,
+          unitPrice: Number.isFinite(unit) ? unit : 0,
+          delta,
+          createdAt: serverTimestamp(),
+          createdByUid: user?.uid ?? null,
+          createdByName: user?.displayName ?? user?.email ?? null,
+        })
 
         if (curQty > 1) {
           const nextQty = curQty - 1
@@ -1335,6 +1376,31 @@ export default function AdminPage() {
                         )
                       })()}
                     </div>
+
+                    <div style={{ height: 10 }} />
+
+                    <details className="card" style={{ margin: 0, padding: 10 }}>
+                      <summary style={{ cursor: 'pointer' }}>
+                        <span className="muted" style={{ fontSize: 12 }}>Historial de ajustes (solo Admin)</span>
+                      </summary>
+                      <div style={{ height: 8 }} />
+                      {orderVoids.length === 0 ? <div className="muted" style={{ fontSize: 12 }}>Sin movimientos.</div> : null}
+                      <div style={{ display: 'grid', gap: 8 }}>
+                        {orderVoids.slice(0, 60).map((v) => (
+                          <div key={String(v.id)} className="row" style={{ justifyContent: 'space-between', gap: 10 }}>
+                            <div>
+                              <div style={{ fontWeight: 700 }}>{String(v?.itemName ?? v?.itemId ?? '')}</div>
+                              <div className="muted" style={{ fontSize: 12 }}>
+                                -1 · {String(v?.orderArea ?? '') === 'bar' ? 'Barra' : 'Cocina'}
+                                {v?.createdAt?.toMillis ? ` · ${formatClock(v.createdAt.toMillis())}` : ''}
+                                {v?.createdByName ? ` · ${String(v.createdByName)}` : ''}
+                              </div>
+                            </div>
+                            <div style={{ fontWeight: 900 }}>{Number(v?.delta ?? 0) ? `-${money(Number(v.delta))}` : '—'}</div>
+                          </div>
+                        ))}
+                      </div>
+                    </details>
                   </>
                 ) : (
                   <div className="muted" style={{ marginTop: 10 }}>
