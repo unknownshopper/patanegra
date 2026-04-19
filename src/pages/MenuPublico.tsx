@@ -322,7 +322,7 @@ export default function MenuPublicoPage() {
     setSelectionCfgByInstanceId({})
   }, [])
 
-  const EXTRAS_GROUPS: Array<{ label: string; items: Array<{ name: string; unitPrice: number }> }> = React.useMemo(() => {
+  const EXTRAS_GROUPS_FOOD: Array<{ label: string; items: Array<{ name: string; unitPrice: number }> }> = React.useMemo(() => {
     const fallback: Array<{ label: string; items: Array<{ name: string; unitPrice: number }> }> = [
       {
         label: 'Proteínas',
@@ -353,6 +353,8 @@ export default function MenuPublicoPage() {
     for (const r of rows) {
       const name = String((r as any)?.name ?? '').trim()
       if (!name) continue
+      const appliesTo = String((r as any)?.appliesTo ?? 'food').trim().toLowerCase()
+      if (appliesTo && appliesTo !== 'food') continue
       const group = String((r as any)?.group ?? 'Extras').trim() || 'Extras'
       const unitPrice = Number((r as any)?.unitPrice ?? 0)
       const sortOrder = Number((r as any)?.sortOrder ?? 0)
@@ -371,11 +373,47 @@ export default function MenuPublicoPage() {
       .sort((a, b) => a.label.localeCompare(b.label))
   }, [menuExtras])
 
+  const EXTRAS_GROUPS_DRINK: Array<{ label: string; items: Array<{ name: string; unitPrice: number }> }> = React.useMemo(() => {
+    const rows = Array.isArray(menuExtras) ? menuExtras : []
+    if (!rows.length) return []
+
+    const byGroup = new Map<string, Array<{ name: string; unitPrice: number; sortOrder: number }>>()
+    for (const r of rows) {
+      const name = String((r as any)?.name ?? '').trim()
+      if (!name) continue
+      const appliesTo = String((r as any)?.appliesTo ?? 'food').trim().toLowerCase()
+      if (appliesTo !== 'drink') continue
+      const group = String((r as any)?.group ?? 'Extras').trim() || 'Extras'
+      const unitPrice = Number((r as any)?.unitPrice ?? 0)
+      const sortOrder = Number((r as any)?.sortOrder ?? 0)
+      const arr = byGroup.get(group) ?? []
+      arr.push({ name, unitPrice: Number.isFinite(unitPrice) ? unitPrice : 0, sortOrder: Number.isFinite(sortOrder) ? sortOrder : 0 })
+      byGroup.set(group, arr)
+    }
+
+    return Array.from(byGroup.entries())
+      .map(([label, items]) => ({
+        label,
+        items: items
+          .sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name))
+          .map((x) => ({ name: x.name, unitPrice: x.unitPrice })),
+      }))
+      .sort((a, b) => a.label.localeCompare(b.label))
+  }, [menuExtras])
+
+  const extrasGroupsForItem = React.useCallback(
+    (item: Item) => {
+      return isBarItem(item) ? EXTRAS_GROUPS_DRINK : EXTRAS_GROUPS_FOOD
+    },
+    [EXTRAS_GROUPS_DRINK, EXTRAS_GROUPS_FOOD],
+  )
+
   const extraPriceByName = React.useMemo(() => {
     const m = new Map<string, number>()
-    for (const g of EXTRAS_GROUPS) for (const it of g.items) m.set(it.name, Number(it.unitPrice ?? 0))
+    for (const g of EXTRAS_GROUPS_FOOD) for (const it of g.items) m.set(it.name, Number(it.unitPrice ?? 0))
+    for (const g of EXTRAS_GROUPS_DRINK) for (const it of g.items) m.set(it.name, Number(it.unitPrice ?? 0))
     return m
-  }, [EXTRAS_GROUPS])
+  }, [EXTRAS_GROUPS_DRINK, EXTRAS_GROUPS_FOOD])
 
   const extraUnitPrice = React.useCallback(
     (name: string) => {
@@ -1151,35 +1189,41 @@ export default function MenuPublicoPage() {
                         />
 
                         <div style={{ height: 8 }} />
-                        <details>
-                          <summary className="muted" style={{ fontSize: 12, cursor: 'pointer' }}>
-                            Extras
-                            {Array.isArray(selectionCfgByInstanceId[s.instanceId]?.extras) && (selectionCfgByInstanceId[s.instanceId]?.extras ?? []).length
-                              ? ` · ${(selectionCfgByInstanceId[s.instanceId]?.extras ?? []).length}`
-                              : ''}
-                          </summary>
-                          <div style={{ height: 6 }} />
-                          <div style={{ display: 'grid', gap: 10 }}>
-                            {EXTRAS_GROUPS.map((g) => (
-                              <div key={g.label}>
-                                <div className="muted" style={{ fontSize: 12, marginBottom: 6 }}>{g.label}</div>
-                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 6 }}>
-                                  {g.items.map((x) => (
-                                    <label key={x.name} className="row" style={{ gap: 8, alignItems: 'center' }}>
-                                      <input
-                                        type="checkbox"
-                                        checked={Boolean((selectionCfgByInstanceId[s.instanceId]?.extras ?? s.cfg.extras).includes(x.name))}
-                                        onChange={() => toggleExtraForSelectionInstance(s.instanceId, x.name)}
-                                      />
-                                      <span style={{ fontSize: 12 }}>{x.name}</span>
-                                      <span className="muted" style={{ fontSize: 12 }}>+{money(x.unitPrice)}</span>
-                                    </label>
-                                  ))}
-                                </div>
+                        {(() => {
+                          const groups = extrasGroupsForItem(s.item)
+                          if (!groups.length) return null
+                          return (
+                            <details>
+                              <summary className="muted" style={{ fontSize: 12, cursor: 'pointer' }}>
+                                Extras
+                                {Array.isArray(selectionCfgByInstanceId[s.instanceId]?.extras) && (selectionCfgByInstanceId[s.instanceId]?.extras ?? []).length
+                                  ? ` · ${(selectionCfgByInstanceId[s.instanceId]?.extras ?? []).length}`
+                                  : ''}
+                              </summary>
+                              <div style={{ height: 6 }} />
+                              <div style={{ display: 'grid', gap: 10 }}>
+                                {groups.map((g) => (
+                                  <div key={g.label}>
+                                    <div className="muted" style={{ fontSize: 12, marginBottom: 6 }}>{g.label}</div>
+                                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 6 }}>
+                                      {g.items.map((x) => (
+                                        <label key={x.name} className="row" style={{ gap: 8, alignItems: 'center' }}>
+                                          <input
+                                            type="checkbox"
+                                            checked={Boolean((selectionCfgByInstanceId[s.instanceId]?.extras ?? s.cfg.extras).includes(x.name))}
+                                            onChange={() => toggleExtraForSelectionInstance(s.instanceId, x.name)}
+                                          />
+                                          <span style={{ fontSize: 12 }}>{x.name}</span>
+                                          <span className="muted" style={{ fontSize: 12 }}>+{money(x.unitPrice)}</span>
+                                        </label>
+                                      ))}
+                                    </div>
+                                  </div>
+                                ))}
                               </div>
-                            ))}
-                          </div>
-                        </details>
+                            </details>
+                          )
+                        })()}
                       </div>
 
                       <div className="row" style={{ justifyContent: 'flex-end' }}>
@@ -1291,26 +1335,32 @@ export default function MenuPublicoPage() {
                             {extrasCount ? ` · ${extrasCount}` : ''}
                           </summary>
                           <div style={{ height: 6 }} />
-                          <div style={{ display: 'grid', gap: 10 }}>
-                            {EXTRAS_GROUPS.map((g) => (
-                              <div key={g.label}>
-                                <div className="muted" style={{ fontSize: 12, marginBottom: 6 }}>{g.label}</div>
-                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 6 }}>
-                                  {g.items.map((x) => (
-                                    <label key={x.name} className="row" style={{ gap: 8, alignItems: 'center' }}>
-                                      <input
-                                        type="checkbox"
-                                        checked={Boolean((l.extras ?? []).includes(x.name))}
-                                        onChange={() => toggleExtraForCartLine(l.lineId, x.name)}
-                                      />
-                                      <span style={{ fontSize: 12 }}>{x.name}</span>
-                                      <span className="muted" style={{ fontSize: 12 }}>+{money(x.unitPrice)}</span>
-                                    </label>
-                                  ))}
-                                </div>
+                          {(() => {
+                            const groups = extrasGroupsForItem(item)
+                            if (!groups.length) return <div className="muted" style={{ fontSize: 12 }}>Sin extras para este producto.</div>
+                            return (
+                              <div style={{ display: 'grid', gap: 10 }}>
+                                {groups.map((g) => (
+                                  <div key={g.label}>
+                                    <div className="muted" style={{ fontSize: 12, marginBottom: 6 }}>{g.label}</div>
+                                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 6 }}>
+                                      {g.items.map((x) => (
+                                        <label key={x.name} className="row" style={{ gap: 8, alignItems: 'center' }}>
+                                          <input
+                                            type="checkbox"
+                                            checked={Boolean((l.extras ?? []).includes(x.name))}
+                                            onChange={() => toggleExtraForCartLine(l.lineId, x.name)}
+                                          />
+                                          <span style={{ fontSize: 12 }}>{x.name}</span>
+                                          <span className="muted" style={{ fontSize: 12 }}>+{money(x.unitPrice)}</span>
+                                        </label>
+                                      ))}
+                                    </div>
+                                  </div>
+                                ))}
                               </div>
-                            ))}
-                          </div>
+                            )
+                          })()}
                         </details>
                       </div>
                       <div className="row" style={{ justifyContent: 'flex-end', alignItems: 'center' }}>
