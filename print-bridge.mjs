@@ -355,7 +355,9 @@ async function ticketText(order, { db }) {
     const name = String(it?.name ?? '').trim() || String(it?.itemId ?? '').trim() || 'Item'
     const qty = Number(it?.qty ?? 0)
     const qtyStr = qty ? `x${qty}` : ''
-    lines.push(`${padRight(qtyStr, 4)} ${name}`.slice(0, 32))
+    const cat = String(it?.categoryName ?? '').trim()
+    const mainLabel = cat ? `${cat}: ${name}` : name
+    lines.push(`${padRight(qtyStr, 4)} ${mainLabel}`.slice(0, 32))
     const size = it?.size ? String(it.size) : ''
     const half = it?.halfName ? String(it.halfName) : ''
     const note = String(it?.note ?? '').trim()

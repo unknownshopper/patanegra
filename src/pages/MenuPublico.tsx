@@ -147,6 +147,9 @@ export default function MenuPublicoPage() {
   const [sizeByItemId, setSizeByItemId] = useState<Record<string, PizzaSize>>({})
   const [halfOtherByItemId, setHalfOtherByItemId] = useState<Record<string, string>>({})
   const [noteByItemId, setNoteByItemId] = useState<Record<string, string>>({})
+  const [cartLines, setCartLines] = useState<
+    Array<{ lineId: string; itemId: string; qty: number; size: PizzaSize | null; halfOtherItemId: string | null; note: string | null }>
+  >([])
   const [cartOpen, setCartOpen] = useState(false)
   const [sendBusy, setSendBusy] = useState(false)
   const [sendMsg, setSendMsg] = useState<string | null>(null)
@@ -273,15 +276,35 @@ export default function MenuPublicoPage() {
     return m
   }, [viewItems])
 
-  const totalQty = useMemo(() => {
+  const selectionQty = useMemo(() => {
     let n = 0
     for (const k of Object.keys(qtyByItemId)) n += Number(qtyByItemId[k] ?? 0)
     return n
   }, [qtyByItemId])
 
+  const cartQty = useMemo(() => cartLines.reduce((s, l) => s + Number(l.qty ?? 0), 0), [cartLines])
+
   const bumpQty = React.useCallback(() => {
     setQtyTick((x) => x + 1)
   }, [])
+
+  const newLineId = React.useCallback(() => {
+    try {
+      // @ts-ignore
+      if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') return crypto.randomUUID()
+    } catch {
+      // ignore
+    }
+    return `${Date.now()}-${Math.random().toString(16).slice(2)}`
+  }, [])
+
+  const clearSelection = React.useCallback(() => {
+    setQtyByItemId({})
+    setSizeByItemId({})
+    setHalfOtherByItemId({})
+    setNoteByItemId({})
+    bumpQty()
+  }, [bumpQty])
 
   const categoryNameById = useMemo(() => {
     const m = new Map<string, string>()
@@ -374,6 +397,21 @@ export default function MenuPublicoPage() {
     out.sort((a, b) => a.item.categoryId.localeCompare(b.item.categoryId) || a.item.sortOrder - b.item.sortOrder)
     return out
   }, [qtyByItemId, itemById])
+
+  const addSelectionToCart = React.useCallback(() => {
+    if (selectedLines.length === 0) return
+    setCartLines((prev) => {
+      const next = [...prev]
+      for (const { item, qty } of selectedLines) {
+        const size = itemHasSizes(item) ? (sizeByItemId[item.id] ?? 'cm30') : null
+        const halfOtherItemId = itemHasSizes(item) ? (halfOtherByItemId[item.id] ?? null) : null
+        const note = String(noteByItemId[item.id] ?? '').trim() || null
+        next.push({ lineId: newLineId(), itemId: item.id, qty: Number(qty ?? 0), size, halfOtherItemId, note })
+      }
+      return next
+    })
+    clearSelection()
+  }, [clearSelection, halfOtherByItemId, newLineId, noteByItemId, selectedLines, sizeByItemId])
 
   const ensureDefaultSize = React.useCallback((it: Item) => {
     if (!itemHasSizes(it)) return
@@ -976,7 +1014,7 @@ export default function MenuPublicoPage() {
         </div>
       </div>
 
-      {canTakeOrders && totalQty > 0 ? (
+      {canTakeOrders && (cartQty > 0 || selectionQty > 0) ? (
         <button
           className="orderBubble"
           role="status"
@@ -992,8 +1030,8 @@ export default function MenuPublicoPage() {
           }}
         >
           <span>Pedido</span>
-          <span key={`${totalQty}-${qtyTick}`} className="orderBubbleCount">
-            {totalQty}
+          <span key={`${cartQty}-${qtyTick}`} className="orderBubbleCount">
+            {cartQty}
           </span>
         </button>
       ) : null}
@@ -1043,133 +1081,70 @@ export default function MenuPublicoPage() {
 
             {sendMsg ? <div className="muted" style={{ marginBottom: 10 }}>{sendMsg}</div> : null}
 
-            {selectedLines.length === 0 ? (
-              <div className="muted">Orden agregada con éxito.</div>
-            ) : (
+            {cartLines.length === 0 ? <div className="muted">Aún no hay productos en el pedido.</div> : null}
+            {cartLines.length ? (
               <div style={{ display: 'grid', gap: 8 }}>
-                {selectedLines.map(({ item, qty }) => (
-                  <div key={item.id} className="cartLine">
-                    <div>
-                      <div style={{ fontWeight: 900 }}>{lineLabel(item)}</div>
-                      <div className="muted" style={{ fontSize: 12 }}>{(categoryNameById.get(item.categoryId) ?? item.categoryId)}</div>
-                      {itemHasSizes(item) ? (
+                {cartLines.map((l) => {
+                  const item = itemById.get(l.itemId)
+                  if (!item) return null
+                  const qty = Number(l.qty ?? 0)
+                  return (
+                    <div key={l.lineId} className="cartLine">
+                      <div>
+                        <div style={{ fontWeight: 900 }}>{lineLabel(item)}</div>
+                        <div className="muted" style={{ fontSize: 12 }}>{categoryNameById.get(item.categoryId) ?? item.categoryId}</div>
+                        {itemHasSizes(item) ? (
+                          <div className="muted" style={{ fontSize: 12 }}>
+                            Tamaño: <strong style={{ color: '#111827' }}>{(l.size ?? 'cm30') === 'cm20' ? '20' : '30'}</strong>
+                          </div>
+                        ) : null}
                         <div className="muted" style={{ fontSize: 12 }}>
-                          Tamaño: <strong style={{ color: '#111827' }}>{(sizeByItemId[item.id] ?? 'cm30') === 'cm20' ? '20' : '30'}</strong>
+                          Precio:{' '}
+                          <strong style={{ color: '#111827' }}>{money(Math.round(lineUnitPrice(item) * qty * 100) / 100)}</strong>{' '}
+                          <span className="muted">({money(lineUnitPrice(item))} x {qty})</span>
                         </div>
-                      ) : null}
-                      <div className="muted" style={{ fontSize: 12 }}>
-                        Precio:{' '}
-                        <strong style={{ color: '#111827' }}>
-                          {money(Math.round(lineUnitPrice(item) * Number(qty ?? 0) * 100) / 100)}
-                        </strong>{' '}
-                        <span className="muted">({money(lineUnitPrice(item))} x {Number(qty ?? 0)})</span>
+                        {l.note ? <div className="muted" style={{ fontSize: 12 }}>* {String(l.note)}</div> : null}
                       </div>
-
-                      <div style={{ height: 6 }} />
-                      <input
-                        className="input"
-                        placeholder="Especificaciones (ej. sin jamón, sin cebolla…)"
-                        value={noteByItemId[item.id] ?? ''}
-                        onChange={(e) => {
-                          const v = e.target.value
-                          setNoteByItemId((p) => ({ ...p, [item.id]: v }))
-                        }}
-                        style={{ maxWidth: 420 }}
-                      />
+                      <div className="row" style={{ justifyContent: 'flex-end', alignItems: 'center' }}>
+                        <button
+                          className="qtyBtn"
+                          onClick={() => {
+                            setCartLines((prev) =>
+                              prev
+                                .map((x) => (x.lineId === l.lineId ? { ...x, qty: Math.max(0, Number(x.qty ?? 0) - 1) } : x))
+                                .filter((x) => Number(x.qty ?? 0) > 0),
+                            )
+                            bumpQty()
+                          }}
+                        >
+                          −
+                        </button>
+                        <div className="qtyValue">{qty}</div>
+                        <button
+                          className="qtyBtn"
+                          onClick={() => {
+                            setCartLines((prev) => prev.map((x) => (x.lineId === l.lineId ? { ...x, qty: Number(x.qty ?? 0) + 1 } : x)))
+                            bumpQty()
+                          }}
+                        >
+                          +
+                        </button>
+                        <button
+                          className="button secondary"
+                          style={{ marginLeft: 8 }}
+                          onClick={() => {
+                            setCartLines((prev) => prev.filter((x) => x.lineId !== l.lineId))
+                            bumpQty()
+                          }}
+                        >
+                          Quitar
+                        </button>
+                      </div>
                     </div>
-                    <div className="row" style={{ justifyContent: 'flex-end' }}>
-                      {itemHasSizes(item) ? (
-                        <div className="row" style={{ gap: 6, justifyContent: 'flex-start' }}>
-                          <button
-                            className="button secondary"
-                            style={{ padding: '6px 10px', borderColor: (sizeByItemId[item.id] ?? 'cm30') === 'cm20' ? '#111827' : '#e5e7eb' }}
-                            onClick={() => setSizeByItemId((p) => ({ ...p, [item.id]: 'cm20' }))}
-                          >
-                            20
-                          </button>
-                          <button
-                            className="button secondary"
-                            style={{ padding: '6px 10px', borderColor: (sizeByItemId[item.id] ?? 'cm30') === 'cm30' ? '#111827' : '#e5e7eb' }}
-                            onClick={() => setSizeByItemId((p) => ({ ...p, [item.id]: 'cm30' }))}
-                          >
-                            30
-                          </button>
-                        </div>
-                      ) : null}
-                      {itemHasSizes(item) ? (
-                        <div className="row" style={{ gap: 6, justifyContent: 'flex-start' }}>
-                          <button
-                            className="button secondary"
-                            style={{ padding: '6px 10px', borderColor: halfOtherByItemId[item.id] ? '#111827' : '#e5e7eb' }}
-                            onClick={() => {
-                              ensureDefaultSize(item)
-                              setHalfOtherByItemId((p) => {
-                                const out = { ...p }
-                                if (out[item.id]) delete out[item.id]
-                                else out[item.id] = ''
-                                return out
-                              })
-                            }}
-                          >
-                            Mitad y mitad
-                          </button>
-                          {halfOtherByItemId[item.id] != null ? (
-                            <select
-                              value={halfOtherByItemId[item.id] ?? ''}
-                              onChange={(e) => setHalfOtherByItemId((p) => ({ ...p, [item.id]: e.target.value }))}
-                              style={{ padding: '8px 10px', borderRadius: 10, border: '1px solid rgba(0,0,0,0.12)' }}
-                            >
-                              <option value="">Selecciona el otro sabor</option>
-                              {pizzaOptions
-                                .filter((x) => x.id !== item.id)
-                                .map((x) => (
-                                  <option key={x.id} value={x.id}>
-                                    {x.name}
-                                  </option>
-                                ))}
-                            </select>
-                          ) : null}
-                        </div>
-                      ) : null}
-                      <button
-                        className="qtyBtn"
-                        onClick={() => {
-                          setQtyByItemId((prev) => {
-                            const cur = Number(prev[item.id] ?? 0)
-                            const next = Math.max(0, cur - 1)
-                            const out = { ...prev }
-                            if (next === 0) delete out[item.id]
-                            else out[item.id] = next
-                            return out
-                          })
-                          if (Number(qtyByItemId[item.id] ?? 0) - 1 <= 0) {
-                            setHalfOtherByItemId((p) => {
-                              const out = { ...p }
-                              delete out[item.id]
-                              return out
-                            })
-                          }
-                          bumpQty()
-                        }}
-                      >
-                        −
-                      </button>
-                      <div className="qtyValue">{qty}</div>
-                      <button
-                        className="qtyBtn"
-                        onClick={() => {
-                          ensureDefaultSize(item)
-                          setQtyByItemId((prev) => ({ ...prev, [item.id]: Number(prev[item.id] ?? 0) + 1 }))
-                          bumpQty()
-                        }}
-                      >
-                        +
-                      </button>
-                    </div>
-                  </div>
-                ))}
+                  )
+                })}
               </div>
-            )}
+            ) : null}
 
             <div style={{ height: 12 }} />
 
@@ -1178,9 +1153,15 @@ export default function MenuPublicoPage() {
               <span className="muted" style={{ fontSize: 12 }}>Extra salsa (+{money(20)})</span>
             </label>
 
+            <div style={{ height: 8 }} />
+
+            <button className="button secondary" disabled={selectedLines.length === 0} onClick={addSelectionToCart}>
+              Agregar selección al pedido ({selectionQty})
+            </button>
+
             <button
               className="button"
-              disabled={sendBusy || selectedLines.length === 0}
+              disabled={sendBusy || cartLines.length === 0}
               onClick={async () => {
                 setSendMsg(null)
                 const chosen = (cartTableId ?? '').trim()
@@ -1204,18 +1185,23 @@ export default function MenuPublicoPage() {
                   setTakeoutName(takeoutNameEffective)
                 }
 
-                const kitchenLines = selectedLines.filter((l) => !isBarItem(l.item))
-                const barLines = selectedLines.filter((l) => isBarItem(l.item))
+                const cartResolved = cartLines
+                  .map((l) => ({ line: l, item: itemById.get(l.itemId) }))
+                  .filter((x) => x.item)
+                  .map((x) => ({ line: x.line, item: x.item as Item }))
+
+                const kitchenLines = cartResolved.filter((l) => !isBarItem(l.item))
+                const barLines = cartResolved.filter((l) => isBarItem(l.item))
 
                 const isTakeoutOrder = chosen === TAKEOUT_VALUE || String(chosen).startsWith('togo-')
-                const pizzasQty = selectedLines.reduce((sum, l) => (isPizzaItem(l.item) ? sum + Number(l.qty ?? 0) : sum), 0)
+                const pizzasQty = cartResolved.reduce((sum, l) => (isPizzaItem(l.item) ? sum + Number(l.line?.qty ?? 0) : sum), 0)
                 const boxQty = isTakeoutOrder ? pizzasQty : 0
                 const boxTotal = boxQty > 0 ? Math.round(boxQty * 5 * 100) / 100 : 0
                 const salsaTotal = extraSalsa ? 20 : 0
 
-                const orderDelta = selectedLines.reduce((sum, l) => {
+                const orderDelta = cartResolved.reduce((sum, l) => {
                   const unit = lineUnitPrice(l.item)
-                  return sum + unit * Number(l.qty ?? 0)
+                  return sum + unit * Number(l.line?.qty ?? 0)
                 }, 0)
                 const orderDeltaWithExtras = Math.round((orderDelta + boxTotal + salsaTotal) * 100) / 100
 
@@ -1314,18 +1300,19 @@ export default function MenuPublicoPage() {
                         ...kitchenLines.map((l) => ({
                           itemId: l.item.id,
                           name: lineLabel(l.item),
-                          qty: l.qty,
+                          qty: Number(l.line?.qty ?? 0),
                           categoryId: l.item.categoryId,
-                          size: itemHasSizes(l.item) ? (sizeByItemId[l.item.id] ?? 'cm30') : null,
-                          halfItemId: itemHasSizes(l.item) ? (halfOtherByItemId[l.item.id] ?? null) : null,
+                          categoryName: String(categoryNameById.get(l.item.categoryId) ?? ''),
+                          size: itemHasSizes(l.item) ? (l.line?.size ?? 'cm30') : null,
+                          halfItemId: itemHasSizes(l.item) ? (l.line?.halfOtherItemId ?? null) : null,
                           halfName: itemHasSizes(l.item)
-                            ? halfOtherByItemId[l.item.id]
-                              ? itemById.get(String(halfOtherByItemId[l.item.id]))?.name ?? null
+                            ? l.line?.halfOtherItemId
+                              ? itemById.get(String(l.line.halfOtherItemId))?.name ?? null
                               : null
                             : null,
-                          note: String(noteByItemId[l.item.id] ?? '').trim() || null,
+                          note: String(l.line?.note ?? '').trim() || null,
                           unitPrice: lineUnitPrice(l.item),
-                          lineTotal: Math.round(lineUnitPrice(l.item) * Number(l.qty ?? 0) * 100) / 100,
+                          lineTotal: Math.round(lineUnitPrice(l.item) * Number(l.line?.qty ?? 0) * 100) / 100,
                         })),
                         ...(boxQty > 0
                           ? [
@@ -1334,6 +1321,7 @@ export default function MenuPublicoPage() {
                                 name: 'Caja para pizza',
                                 qty: boxQty,
                                 categoryId: '__extra__',
+                                categoryName: 'Extras',
                                 size: null,
                                 halfItemId: null,
                                 halfName: null,
@@ -1350,6 +1338,7 @@ export default function MenuPublicoPage() {
                                 name: 'Extra salsa',
                                 qty: 1,
                                 categoryId: '__extra__',
+                                categoryName: 'Extras',
                                 size: null,
                                 halfItemId: null,
                                 halfName: null,
@@ -1369,14 +1358,19 @@ export default function MenuPublicoPage() {
                       items: barLines.map((l) => ({
                         itemId: l.item.id,
                         name: lineLabel(l.item),
-                        qty: l.qty,
+                        qty: Number(l.line?.qty ?? 0),
                         categoryId: l.item.categoryId,
-                        size: itemHasSizes(l.item) ? (sizeByItemId[l.item.id] ?? 'cm30') : null,
-                        halfItemId: itemHasSizes(l.item) ? (halfOtherByItemId[l.item.id] ?? null) : null,
-                        halfName: itemHasSizes(l.item) ? (halfOtherByItemId[l.item.id] ? itemById.get(String(halfOtherByItemId[l.item.id]))?.name ?? null : null) : null,
-                        note: String(noteByItemId[l.item.id] ?? '').trim() || null,
+                        categoryName: String(categoryNameById.get(l.item.categoryId) ?? ''),
+                        size: itemHasSizes(l.item) ? (l.line?.size ?? 'cm30') : null,
+                        halfItemId: itemHasSizes(l.item) ? (l.line?.halfOtherItemId ?? null) : null,
+                        halfName: itemHasSizes(l.item)
+                          ? l.line?.halfOtherItemId
+                            ? itemById.get(String(l.line.halfOtherItemId))?.name ?? null
+                            : null
+                          : null,
+                        note: String(l.line?.note ?? '').trim() || null,
                         unitPrice: lineUnitPrice(l.item),
-                        lineTotal: Math.round(lineUnitPrice(l.item) * Number(l.qty ?? 0) * 100) / 100,
+                        lineTotal: Math.round(lineUnitPrice(l.item) * Number(l.line?.qty ?? 0) * 100) / 100,
                       })),
                     })
                   }
@@ -1386,16 +1380,12 @@ export default function MenuPublicoPage() {
                     await updateDoc(doc(db, 'tabs', tabId), { total: nextTotal, updatedAt: serverTimestamp() })
                   }
 
-                  setQtyByItemId({})
-                  setSizeByItemId({})
-                  setHalfOtherByItemId({})
-                  setNoteByItemId({})
+                  setCartLines([])
+                  clearSelection()
                   setExtraSalsa(false)
-                  bumpQty()
                   setCartOpen(false)
                   setCallMessage('Orden agregada con éxito.')
                   window.setTimeout(() => setCallMessage(null), 2500)
-                  window.setTimeout(() => window.location.reload(), 150)
                 } catch (e: any) {
                   const msg = String(e?.message ?? '')
                   if (msg.toLowerCase().includes('index')) {
