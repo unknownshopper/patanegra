@@ -142,20 +142,29 @@ export default function MenuPublicoPage() {
   const [callBusy, setCallBusy] = useState(false)
   const [callMessage, setCallMessage] = useState<string | null>(null)
   const [openTakeoutTabs, setOpenTakeoutTabs] = useState<any[]>([])
+  const [menuExtras, setMenuExtras] = useState<any[]>([])
   const [qtyByItemId, setQtyByItemId] = useState<Record<string, number>>({})
   const [qtyTick, setQtyTick] = useState(0)
   const [sizeByItemId, setSizeByItemId] = useState<Record<string, PizzaSize>>({})
   const [halfOtherByItemId, setHalfOtherByItemId] = useState<Record<string, string>>({})
   const [noteByItemId, setNoteByItemId] = useState<Record<string, string>>({})
+  const [extrasByItemId, setExtrasByItemId] = useState<Record<string, string[]>>({})
   const [cartLines, setCartLines] = useState<
-    Array<{ lineId: string; itemId: string; qty: number; size: PizzaSize | null; halfOtherItemId: string | null; note: string | null }>
+    Array<{
+      lineId: string
+      itemId: string
+      qty: number
+      size: PizzaSize | null
+      halfOtherItemId: string | null
+      note: string | null
+      extras: string[]
+    }>
   >([])
   const [cartOpen, setCartOpen] = useState(false)
   const [sendBusy, setSendBusy] = useState(false)
   const [sendMsg, setSendMsg] = useState<string | null>(null)
   const [cartTableId, setCartTableId] = useState<string>('')
   const [takeoutName, setTakeoutName] = useState<string>('')
-  const [extraSalsa, setExtraSalsa] = useState(false)
   const [confirmAddToExistingTab, setConfirmAddToExistingTab] = useState(false)
 
   const isStaff = Boolean(user?.role)
@@ -225,9 +234,10 @@ export default function MenuPublicoPage() {
     let alive = true
     ;(async () => {
       try {
-        const [catsSnap, itemsSnap] = await Promise.all([
+        const [catsSnap, itemsSnap, extrasSnap] = await Promise.all([
           getDocs(query(collection(db, 'menuCategories'), orderBy('sortOrder', 'asc'))),
           getDocs(query(collection(db, 'menuItems'), orderBy('sortOrder', 'asc'))),
+          getDocs(query(collection(db, 'menuExtras'), orderBy('sortOrder', 'asc'))),
         ])
 
         if (!alive) return
@@ -239,8 +249,13 @@ export default function MenuPublicoPage() {
           .map((d) => ({ id: d.id, ...(d.data() as any) }))
           .filter((i) => i.isActive)
 
+        const extrasData = extrasSnap.docs
+          .map((d) => ({ id: d.id, ...(d.data() as any) }))
+          .filter((x) => (x as any)?.isActive !== false)
+
         setCategories(catsData)
         setItems(itemsData)
+        setMenuExtras(extrasData)
         setConnected(true)
         setCatsLoaded(true)
         setItemsLoaded(true)
@@ -303,8 +318,91 @@ export default function MenuPublicoPage() {
     setSizeByItemId({})
     setHalfOtherByItemId({})
     setNoteByItemId({})
+    setExtrasByItemId({})
     bumpQty()
   }, [bumpQty])
+
+  const EXTRAS_GROUPS: Array<{ label: string; items: Array<{ name: string; unitPrice: number }> }> = React.useMemo(() => {
+    const fallback: Array<{ label: string; items: Array<{ name: string; unitPrice: number }> }> = [
+      {
+        label: 'Proteínas',
+        items: [
+          { name: 'Pepperoni', unitPrice: 30 },
+          { name: 'Jamón', unitPrice: 30 },
+          { name: 'Salchicha', unitPrice: 30 },
+          { name: 'Pollo', unitPrice: 30 },
+        ],
+      },
+      { label: 'Quesos', items: [{ name: 'Extra queso', unitPrice: 30 }, { name: 'Queso parmesano', unitPrice: 30 }] },
+      {
+        label: 'Verduras',
+        items: [
+          { name: 'Champiñón', unitPrice: 30 },
+          { name: 'Cebolla', unitPrice: 30 },
+          { name: 'Pimiento', unitPrice: 30 },
+          { name: 'Piña', unitPrice: 30 },
+          { name: 'Aceituna', unitPrice: 30 },
+        ],
+      },
+    ]
+
+    const rows = Array.isArray(menuExtras) ? menuExtras : []
+    if (!rows.length) return fallback
+
+    const byGroup = new Map<string, Array<{ name: string; unitPrice: number; sortOrder: number }>>()
+    for (const r of rows) {
+      const name = String((r as any)?.name ?? '').trim()
+      if (!name) continue
+      const group = String((r as any)?.group ?? 'Extras').trim() || 'Extras'
+      const unitPrice = Number((r as any)?.unitPrice ?? 0)
+      const sortOrder = Number((r as any)?.sortOrder ?? 0)
+      const arr = byGroup.get(group) ?? []
+      arr.push({ name, unitPrice: Number.isFinite(unitPrice) ? unitPrice : 0, sortOrder: Number.isFinite(sortOrder) ? sortOrder : 0 })
+      byGroup.set(group, arr)
+    }
+
+    return Array.from(byGroup.entries())
+      .map(([label, items]) => ({
+        label,
+        items: items
+          .sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name))
+          .map((x) => ({ name: x.name, unitPrice: x.unitPrice })),
+      }))
+      .sort((a, b) => a.label.localeCompare(b.label))
+  }, [menuExtras])
+
+  const extraPriceByName = React.useMemo(() => {
+    const m = new Map<string, number>()
+    for (const g of EXTRAS_GROUPS) for (const it of g.items) m.set(it.name, Number(it.unitPrice ?? 0))
+    return m
+  }, [EXTRAS_GROUPS])
+
+  const extraUnitPrice = React.useCallback(
+    (name: string) => {
+      const n = Number(extraPriceByName.get(String(name)) ?? 0)
+      return Number.isFinite(n) && n > 0 ? n : 0
+    },
+    [extraPriceByName],
+  )
+
+  const toggleExtraForItem = React.useCallback((itemId: string, extraName: string) => {
+    setExtrasByItemId((prev) => {
+      const cur = Array.isArray(prev[itemId]) ? prev[itemId] : []
+      const has = cur.includes(extraName)
+      const next = has ? cur.filter((x) => x !== extraName) : [...cur, extraName]
+      return { ...prev, [itemId]: next }
+    })
+  }, [])
+
+  const toggleExtraForCartLine = React.useCallback((lineId: string, extraName: string) => {
+    setCartLines((prev) =>
+      prev.map((l) => {
+        if (l.lineId !== lineId) return l
+        const has = l.extras.includes(extraName)
+        return { ...l, extras: has ? l.extras.filter((x) => x !== extraName) : [...l.extras, extraName] }
+      }),
+    )
+  }, [])
 
   const categoryNameById = useMemo(() => {
     const m = new Map<string, string>()
@@ -406,12 +504,13 @@ export default function MenuPublicoPage() {
         const size = itemHasSizes(item) ? (sizeByItemId[item.id] ?? 'cm30') : null
         const halfOtherItemId = itemHasSizes(item) ? (halfOtherByItemId[item.id] ?? null) : null
         const note = String(noteByItemId[item.id] ?? '').trim() || null
-        next.push({ lineId: newLineId(), itemId: item.id, qty: Number(qty ?? 0), size, halfOtherItemId, note })
+        const extras = Array.isArray(extrasByItemId[item.id]) ? extrasByItemId[item.id] : []
+        next.push({ lineId: newLineId(), itemId: item.id, qty: Number(qty ?? 0), size, halfOtherItemId, note, extras })
       }
       return next
     })
     clearSelection()
-  }, [clearSelection, halfOtherByItemId, newLineId, noteByItemId, selectedLines, sizeByItemId])
+  }, [clearSelection, extrasByItemId, halfOtherByItemId, newLineId, noteByItemId, selectedLines, sizeByItemId])
 
   const ensureDefaultSize = React.useCallback((it: Item) => {
     if (!itemHasSizes(it)) return
@@ -1030,8 +1129,8 @@ export default function MenuPublicoPage() {
           }}
         >
           <span>Pedido</span>
-          <span key={`${cartQty}-${qtyTick}`} className="orderBubbleCount">
-            {cartQty}
+          <span key={`${cartQty + selectionQty}-${qtyTick}`} className="orderBubbleCount">
+            {cartQty + selectionQty}
           </span>
         </button>
       ) : null}
@@ -1081,13 +1180,174 @@ export default function MenuPublicoPage() {
 
             {sendMsg ? <div className="muted" style={{ marginBottom: 10 }}>{sendMsg}</div> : null}
 
-            {cartLines.length === 0 ? <div className="muted">Aún no hay productos en el pedido.</div> : null}
+            {selectedLines.length ? (
+              <div className="card" style={{ margin: 0, padding: 10 }}>
+                <div className="muted" style={{ fontSize: 12, marginBottom: 8 }}>Selección actual (aún no agregada)</div>
+                <div style={{ display: 'grid', gap: 8 }}>
+                  {selectedLines.map(({ item, qty }) => (
+                    <div key={item.id} className="cartLine" style={{ margin: 0 }}>
+                      <div>
+                      <div style={{ fontWeight: 900 }}>{lineLabel(item)}</div>
+                      <div className="muted" style={{ fontSize: 12 }}>{categoryNameById.get(item.categoryId) ?? item.categoryId}</div>
+                        {itemHasSizes(item) ? (
+                          <div className="muted" style={{ fontSize: 12 }}>
+                            Tamaño: <strong style={{ color: '#111827' }}>{(sizeByItemId[item.id] ?? 'cm30') === 'cm20' ? '20' : '30'}</strong>
+                          </div>
+                        ) : null}
+                        <div className="muted" style={{ fontSize: 12 }}>
+                          Precio:{' '}
+                          <strong style={{ color: '#111827' }}>{money(Math.round(lineUnitPrice(item) * Number(qty ?? 0) * 100) / 100)}</strong>{' '}
+                          <span className="muted">({money(lineUnitPrice(item))} x {Number(qty ?? 0)})</span>
+                        </div>
+
+                        <div style={{ height: 6 }} />
+                        <input
+                          className="input"
+                          placeholder="Especificaciones (ej. sin jamón, sin cebolla…)"
+                          value={noteByItemId[item.id] ?? ''}
+                          onChange={(e) => {
+                            const v = e.target.value
+                            setNoteByItemId((p) => ({ ...p, [item.id]: v }))
+                          }}
+                          style={{ maxWidth: 420 }}
+                        />
+
+                        <div style={{ height: 8 }} />
+                        <details>
+                          <summary className="muted" style={{ fontSize: 12, cursor: 'pointer' }}>
+                            Extras
+                            {Array.isArray(extrasByItemId[item.id]) && extrasByItemId[item.id].length ? ` · ${extrasByItemId[item.id].length}` : ''}
+                          </summary>
+                          <div style={{ height: 6 }} />
+                          <div style={{ display: 'grid', gap: 10 }}>
+                            {EXTRAS_GROUPS.map((g) => (
+                              <div key={g.label}>
+                                <div className="muted" style={{ fontSize: 12, marginBottom: 6 }}>{g.label}</div>
+                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 6 }}>
+                                  {g.items.map((x) => (
+                                    <label key={x.name} className="row" style={{ gap: 8, alignItems: 'center' }}>
+                                      <input
+                                        type="checkbox"
+                                        checked={Boolean((extrasByItemId[item.id] ?? []).includes(x.name))}
+                                        onChange={() => toggleExtraForItem(item.id, x.name)}
+                                      />
+                                      <span style={{ fontSize: 12 }}>{x.name}</span>
+                                      <span className="muted" style={{ fontSize: 12 }}>+{money(x.unitPrice)}</span>
+                                    </label>
+                                  ))}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </details>
+                      </div>
+
+                      <div className="row" style={{ justifyContent: 'flex-end' }}>
+                        {itemHasSizes(item) ? (
+                          <div className="row" style={{ gap: 6, justifyContent: 'flex-start' }}>
+                            <button
+                              className="button secondary"
+                              style={{ padding: '6px 10px', borderColor: (sizeByItemId[item.id] ?? 'cm30') === 'cm20' ? '#111827' : '#e5e7eb' }}
+                              onClick={() => setSizeByItemId((p) => ({ ...p, [item.id]: 'cm20' }))}
+                            >
+                              20
+                            </button>
+                            <button
+                              className="button secondary"
+                              style={{ padding: '6px 10px', borderColor: (sizeByItemId[item.id] ?? 'cm30') === 'cm30' ? '#111827' : '#e5e7eb' }}
+                              onClick={() => setSizeByItemId((p) => ({ ...p, [item.id]: 'cm30' }))}
+                            >
+                              30
+                            </button>
+                          </div>
+                        ) : null}
+
+                        {itemHasSizes(item) ? (
+                          <div className="row" style={{ gap: 6, justifyContent: 'flex-start' }}>
+                            <button
+                              className="button secondary"
+                              style={{ padding: '6px 10px', borderColor: halfOtherByItemId[item.id] ? '#111827' : '#e5e7eb' }}
+                              onClick={() => {
+                                ensureDefaultSize(item)
+                                setHalfOtherByItemId((p) => {
+                                  const out = { ...p }
+                                  if (out[item.id]) delete out[item.id]
+                                  else out[item.id] = ''
+                                  return out
+                                })
+                              }}
+                            >
+                              Mitad y mitad
+                            </button>
+                            {halfOtherByItemId[item.id] != null ? (
+                              <select
+                                value={halfOtherByItemId[item.id] ?? ''}
+                                onChange={(e) => setHalfOtherByItemId((p) => ({ ...p, [item.id]: e.target.value }))}
+                                style={{ padding: '8px 10px', borderRadius: 10, border: '1px solid rgba(0,0,0,0.12)' }}
+                              >
+                                <option value="">Selecciona el otro sabor</option>
+                                {pizzaOptions
+                                  .filter((x) => x.id !== item.id)
+                                  .map((x) => (
+                                    <option key={x.id} value={x.id}>
+                                      {x.name}
+                                    </option>
+                                  ))}
+                              </select>
+                            ) : null}
+                          </div>
+                        ) : null}
+
+                        <button
+                          className="qtyBtn"
+                          onClick={() => {
+                            setQtyByItemId((prev) => {
+                              const cur = Number(prev[item.id] ?? 0)
+                              const next = Math.max(0, cur - 1)
+                              const out = { ...prev }
+                              if (next === 0) delete out[item.id]
+                              else out[item.id] = next
+                              return out
+                            })
+                            if (Number(qtyByItemId[item.id] ?? 0) - 1 <= 0) {
+                              setHalfOtherByItemId((p) => {
+                                const out = { ...p }
+                                delete out[item.id]
+                                return out
+                              })
+                            }
+                            bumpQty()
+                          }}
+                        >
+                          −
+                        </button>
+                        <div className="qtyValue">{qty}</div>
+                        <button
+                          className="qtyBtn"
+                          onClick={() => {
+                            ensureDefaultSize(item)
+                            setQtyByItemId((prev) => ({ ...prev, [item.id]: Number(prev[item.id] ?? 0) + 1 }))
+                            bumpQty()
+                          }}
+                        >
+                          +
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+
+            {cartLines.length === 0 ? <div className="muted">Aún no hay productos agregados al pedido.</div> : null}
             {cartLines.length ? (
               <div style={{ display: 'grid', gap: 8 }}>
                 {cartLines.map((l) => {
                   const item = itemById.get(l.itemId)
                   if (!item) return null
                   const qty = Number(l.qty ?? 0)
+                  const extrasCount = Array.isArray(l.extras) ? l.extras.length : 0
+                  const extrasTotal = extrasCount > 0 ? l.extras.reduce((s, nm) => s + extraUnitPrice(String(nm)) * qty, 0) : 0
                   return (
                     <div key={l.lineId} className="cartLine">
                       <div>
@@ -1100,10 +1360,40 @@ export default function MenuPublicoPage() {
                         ) : null}
                         <div className="muted" style={{ fontSize: 12 }}>
                           Precio:{' '}
-                          <strong style={{ color: '#111827' }}>{money(Math.round(lineUnitPrice(item) * qty * 100) / 100)}</strong>{' '}
+                          <strong style={{ color: '#111827' }}>{money(Math.round((lineUnitPrice(item) * qty + extrasTotal) * 100) / 100)}</strong>{' '}
                           <span className="muted">({money(lineUnitPrice(item))} x {qty})</span>
                         </div>
                         {l.note ? <div className="muted" style={{ fontSize: 12 }}>* {String(l.note)}</div> : null}
+                        {extrasCount ? <div className="muted" style={{ fontSize: 12 }}>+ Extras: {extrasCount} (x{qty})</div> : null}
+
+                        <div style={{ height: 6 }} />
+                        <details>
+                          <summary className="muted" style={{ fontSize: 12, cursor: 'pointer' }}>
+                            Editar extras
+                            {extrasCount ? ` · ${extrasCount}` : ''}
+                          </summary>
+                          <div style={{ height: 6 }} />
+                          <div style={{ display: 'grid', gap: 10 }}>
+                            {EXTRAS_GROUPS.map((g) => (
+                              <div key={g.label}>
+                                <div className="muted" style={{ fontSize: 12, marginBottom: 6 }}>{g.label}</div>
+                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 6 }}>
+                                  {g.items.map((x) => (
+                                    <label key={x.name} className="row" style={{ gap: 8, alignItems: 'center' }}>
+                                      <input
+                                        type="checkbox"
+                                        checked={Boolean((l.extras ?? []).includes(x.name))}
+                                        onChange={() => toggleExtraForCartLine(l.lineId, x.name)}
+                                      />
+                                      <span style={{ fontSize: 12 }}>{x.name}</span>
+                                      <span className="muted" style={{ fontSize: 12 }}>+{money(x.unitPrice)}</span>
+                                    </label>
+                                  ))}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </details>
                       </div>
                       <div className="row" style={{ justifyContent: 'flex-end', alignItems: 'center' }}>
                         <button
@@ -1148,20 +1438,13 @@ export default function MenuPublicoPage() {
 
             <div style={{ height: 12 }} />
 
-            <label className="row" style={{ gap: 8, alignItems: 'center' }}>
-              <input type="checkbox" checked={extraSalsa} onChange={(e) => setExtraSalsa(e.target.checked)} />
-              <span className="muted" style={{ fontSize: 12 }}>Extra salsa (+{money(20)})</span>
-            </label>
-
-            <div style={{ height: 8 }} />
-
             <button className="button secondary" disabled={selectedLines.length === 0} onClick={addSelectionToCart}>
               Agregar selección al pedido ({selectionQty})
             </button>
 
             <button
               className="button"
-              disabled={sendBusy || cartLines.length === 0}
+              disabled={sendBusy || (cartLines.length === 0 && selectedLines.length === 0)}
               onClick={async () => {
                 setSendMsg(null)
                 const chosen = (cartTableId ?? '').trim()
@@ -1185,7 +1468,17 @@ export default function MenuPublicoPage() {
                   setTakeoutName(takeoutNameEffective)
                 }
 
-                const cartResolved = cartLines
+                const selectionAsCartLines = selectedLines.map(({ item, qty }) => ({
+                  lineId: newLineId(),
+                  itemId: item.id,
+                  qty: Number(qty ?? 0),
+                  size: itemHasSizes(item) ? (sizeByItemId[item.id] ?? 'cm30') : null,
+                  halfOtherItemId: itemHasSizes(item) ? (halfOtherByItemId[item.id] ?? null) : null,
+                  note: String(noteByItemId[item.id] ?? '').trim() || null,
+                  extras: Array.isArray(extrasByItemId[item.id]) ? extrasByItemId[item.id] : [],
+                }))
+
+                const cartResolved = [...cartLines, ...selectionAsCartLines]
                   .map((l) => ({ line: l, item: itemById.get(l.itemId) }))
                   .filter((x) => x.item)
                   .map((x) => ({ line: x.line, item: x.item as Item }))
@@ -1197,13 +1490,19 @@ export default function MenuPublicoPage() {
                 const pizzasQty = cartResolved.reduce((sum, l) => (isPizzaItem(l.item) ? sum + Number(l.line?.qty ?? 0) : sum), 0)
                 const boxQty = isTakeoutOrder ? pizzasQty : 0
                 const boxTotal = boxQty > 0 ? Math.round(boxQty * 5 * 100) / 100 : 0
-                const salsaTotal = extraSalsa ? 20 : 0
+                const extrasTotalAll = cartResolved.reduce((sum, l) => {
+                  const extrasCount = Array.isArray((l.line as any)?.extras) ? (l.line as any).extras.length : 0
+                  if (!extrasCount) return sum
+                  const qty = Number((l.line as any)?.qty ?? 0)
+                  const extras = Array.isArray((l.line as any)?.extras) ? (l.line as any).extras : []
+                  return sum + extras.reduce((s: number, nm: string) => s + extraUnitPrice(String(nm)) * qty, 0)
+                }, 0)
 
                 const orderDelta = cartResolved.reduce((sum, l) => {
                   const unit = lineUnitPrice(l.item)
                   return sum + unit * Number(l.line?.qty ?? 0)
                 }, 0)
-                const orderDeltaWithExtras = Math.round((orderDelta + boxTotal + salsaTotal) * 100) / 100
+                const orderDeltaWithExtras = Math.round((orderDelta + boxTotal + extrasTotalAll) * 100) / 100
 
                 setSendBusy(true)
                 try {
@@ -1311,8 +1610,14 @@ export default function MenuPublicoPage() {
                               : null
                             : null,
                           note: String(l.line?.note ?? '').trim() || null,
+                          extras: (Array.isArray((l.line as any)?.extras) ? (l.line as any).extras : []).map((nm: string) => ({
+                            name: String(nm),
+                            unitPrice: extraUnitPrice(String(nm)),
+                            qty: Number(l.line?.qty ?? 0),
+                            lineTotal: Math.round(extraUnitPrice(String(nm)) * Number(l.line?.qty ?? 0) * 100) / 100,
+                          })),
                           unitPrice: lineUnitPrice(l.item),
-                          lineTotal: Math.round(lineUnitPrice(l.item) * Number(l.line?.qty ?? 0) * 100) / 100,
+                          lineTotal: Math.round((lineUnitPrice(l.item) * Number(l.line?.qty ?? 0) + (Array.isArray((l.line as any)?.extras) ? (l.line as any).extras.reduce((s: number, nm: string) => s + extraUnitPrice(String(nm)) * Number(l.line?.qty ?? 0), 0) : 0)) * 100) / 100,
                         })),
                         ...(boxQty > 0
                           ? [
@@ -1328,23 +1633,6 @@ export default function MenuPublicoPage() {
                                 note: null,
                                 unitPrice: 5,
                                 lineTotal: boxTotal,
-                              },
-                            ]
-                          : []),
-                        ...(extraSalsa
-                          ? [
-                              {
-                                itemId: '__extra_salsa__',
-                                name: 'Extra salsa',
-                                qty: 1,
-                                categoryId: '__extra__',
-                                categoryName: 'Extras',
-                                size: null,
-                                halfItemId: null,
-                                halfName: null,
-                                note: null,
-                                unitPrice: 20,
-                                lineTotal: 20,
                               },
                             ]
                           : []),
@@ -1369,8 +1657,14 @@ export default function MenuPublicoPage() {
                             : null
                           : null,
                         note: String(l.line?.note ?? '').trim() || null,
+                        extras: (Array.isArray((l.line as any)?.extras) ? (l.line as any).extras : []).map((nm: string) => ({
+                          name: String(nm),
+                          unitPrice: extraUnitPrice(String(nm)),
+                          qty: Number(l.line?.qty ?? 0),
+                          lineTotal: Math.round(extraUnitPrice(String(nm)) * Number(l.line?.qty ?? 0) * 100) / 100,
+                        })),
                         unitPrice: lineUnitPrice(l.item),
-                        lineTotal: Math.round(lineUnitPrice(l.item) * Number(l.line?.qty ?? 0) * 100) / 100,
+                        lineTotal: Math.round((lineUnitPrice(l.item) * Number(l.line?.qty ?? 0) + (Array.isArray((l.line as any)?.extras) ? (l.line as any).extras.reduce((s: number, nm: string) => s + extraUnitPrice(String(nm)) * Number(l.line?.qty ?? 0), 0) : 0)) * 100) / 100,
                       })),
                     })
                   }
@@ -1382,7 +1676,6 @@ export default function MenuPublicoPage() {
 
                   setCartLines([])
                   clearSelection()
-                  setExtraSalsa(false)
                   setCartOpen(false)
                   setCallMessage('Orden agregada con éxito.')
                   window.setTimeout(() => setCallMessage(null), 2500)

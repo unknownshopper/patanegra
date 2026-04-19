@@ -361,8 +361,16 @@ async function ticketText(order, { db }) {
     const size = it?.size ? String(it.size) : ''
     const half = it?.halfName ? String(it.halfName) : ''
     const note = String(it?.note ?? '').trim()
+    const extras = Array.isArray(it?.extras) ? it.extras : []
     if (size) lines.push(`     ${size}`.slice(0, 32))
     if (half) lines.push(`     1/2 + ${half}`.slice(0, 32))
+    for (const ex of extras) {
+      const exName = String(ex?.name ?? '').trim()
+      if (!exName) continue
+      const exQty = Number(ex?.qty ?? 0)
+      const exQtyStr = Number.isFinite(exQty) && exQty > 1 ? ` x${exQty}` : ''
+      lines.push(`     + ${exName}${exQtyStr}`.slice(0, 32))
+    }
     if (note) {
       const compact = note.replace(/\s+/g, ' ').trim()
       lines.push(`     * ${compact}`.slice(0, 32))

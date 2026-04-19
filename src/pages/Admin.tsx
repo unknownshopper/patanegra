@@ -40,6 +40,15 @@ type Item = {
   promoLabel?: string
 }
 
+type MenuExtra = {
+  id: string
+  name: string
+  group: string
+  unitPrice: number
+  sortOrder: number
+  isActive: boolean
+}
+
 function hasSizes(it: Item) {
   return typeof it.prices?.cm20 === 'number' || typeof it.prices?.cm30 === 'number'
 }
@@ -376,6 +385,7 @@ export default function AdminPage() {
   const [view, setView] = React.useState<'dashboard' | 'tables' | 'editor' | 'report'>(initialView)
   const [categories, setCategories] = React.useState<Category[]>([])
   const [items, setItems] = React.useState<Item[]>([])
+  const [extras, setExtras] = React.useState<MenuExtra[]>([])
   const [selectedCategoryId, setSelectedCategoryId] = React.useState<string | null>(null)
   const [importJson, setImportJson] = React.useState('')
   const [importBusy, setImportBusy] = React.useState(false)
@@ -456,6 +466,20 @@ export default function AdminPage() {
       const data: Item[] = snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) }))
       setItems(data)
     })
+  }, [])
+
+  React.useEffect(() => {
+    const q = query(collection(db, 'menuExtras'), orderBy('sortOrder', 'asc'))
+    return onSnapshot(
+      q,
+      (snap) => {
+        const data: MenuExtra[] = snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) }))
+        setExtras(data)
+      },
+      () => {
+        setExtras([])
+      },
+    )
   }, [])
 
   const selectedCategory = categories.find((c) => c.id === selectedCategoryId) ?? null

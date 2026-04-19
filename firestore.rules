@@ -66,6 +66,11 @@ rules_version = '2';
        allow read: if true;
        allow create, update, delete: if isAdmin();
      }
+
+     match /menuExtras/{id} {
+       allow read: if true;
+       allow create, update, delete: if isAdmin();
+     }
  
      match /users/{uid} {
        allow read: if isSignedIn() && (request.auth.uid == uid || isAdmin());
