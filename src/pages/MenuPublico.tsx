@@ -325,23 +325,26 @@ export default function MenuPublicoPage() {
   const EXTRAS_GROUPS_FOOD: Array<{ label: string; items: Array<{ name: string; unitPrice: number }> }> = React.useMemo(() => {
     const fallback: Array<{ label: string; items: Array<{ name: string; unitPrice: number }> }> = [
       {
-        label: 'Proteínas',
+        label: 'Carnes y embutidos',
         items: [
-          { name: 'Pepperoni', unitPrice: 30 },
-          { name: 'Jamón', unitPrice: 30 },
-          { name: 'Salchicha', unitPrice: 30 },
-          { name: 'Pollo', unitPrice: 30 },
+          { name: 'Pepperoni', unitPrice: 35 },
+          { name: 'Jamón', unitPrice: 35 },
+          { name: 'Salchicha', unitPrice: 35 },
+          { name: 'Pollo', unitPrice: 35 },
+          { name: 'Jamón serrano', unitPrice: 80 },
         ],
       },
-      { label: 'Quesos', items: [{ name: 'Extra queso', unitPrice: 30 }, { name: 'Queso parmesano', unitPrice: 30 }] },
+      { label: 'Mariscos', items: [{ name: 'Ostiones', unitPrice: 60 }] },
+      { label: 'Quesos', items: [{ name: 'Extra queso', unitPrice: 35 }, { name: 'Queso parmesano', unitPrice: 35 }] },
       {
         label: 'Verduras',
         items: [
-          { name: 'Champiñón', unitPrice: 30 },
-          { name: 'Cebolla', unitPrice: 30 },
-          { name: 'Pimiento', unitPrice: 30 },
-          { name: 'Piña', unitPrice: 30 },
-          { name: 'Aceituna', unitPrice: 30 },
+          { name: 'Champiñón', unitPrice: 25 },
+          { name: 'Cebolla', unitPrice: 25 },
+          { name: 'Pimiento', unitPrice: 25 },
+          { name: 'Piña', unitPrice: 25 },
+          { name: 'Aceituna', unitPrice: 25 },
+          { name: 'Espinaca', unitPrice: 25 },
         ],
       },
     ]
