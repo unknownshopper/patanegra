@@ -502,17 +502,7 @@ export default function MenuPublicoPage() {
   }, [filteredCategories, productQuery, typeFilter, viewCategories])
 
   function isBarItem(it: Item) {
-    const name = normalizeText(String(categoryNameById.get(it.categoryId) ?? it.categoryId))
-    return (
-      name.includes('bebida') ||
-      name.includes('refresco') ||
-      name.includes('soda') ||
-      name.includes('cafe') ||
-      name.includes('agua') ||
-      name.includes('jarra') ||
-      name.includes('mezcalita') ||
-      name.includes('italiana')
-    )
+    return itemType(it) === 'bebidas'
   }
 
   const selectionInstances = useMemo(() => {
