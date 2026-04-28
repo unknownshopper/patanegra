@@ -402,6 +402,8 @@ export default function AdminPage() {
   const [reportOpen, setReportOpen] = React.useState<'day' | 'week' | 'month' | 'range' | null>(null)
   const [rangeStart, setRangeStart] = React.useState('')
   const [rangeEnd, setRangeEnd] = React.useState('')
+  const [reportDayMs, setReportDayMs] = React.useState<number | null>(null)
+  const [reportExpandedTabId, setReportExpandedTabId] = React.useState<string | null>(null)
 
   React.useEffect(() => {
     const t = window.setInterval(() => setNow(Date.now()), 15_000)
@@ -575,13 +577,46 @@ export default function AdminPage() {
         tabs: any[]
         topItems: Array<{ name: string; qty: number }>
         sum: number
-        byMethod: { efectivo: number; terminal: number; transferencia: number; cortesia: number; legacy: number }
+        byMethod: {
+          efectivo: number
+          terminal: number
+          propinaTerminal: number
+          transferencia: number
+          propinaTransferencia: number
+          cortesia: number
+          legacy: number
+        }
+        dough: { cm30: number; cm20: number }
       }
     > = {
-      day: { tabs: [], topItems: [], sum: 0, byMethod: { efectivo: 0, terminal: 0, transferencia: 0, cortesia: 0, legacy: 0 } },
-      week: { tabs: [], topItems: [], sum: 0, byMethod: { efectivo: 0, terminal: 0, transferencia: 0, cortesia: 0, legacy: 0 } },
-      month: { tabs: [], topItems: [], sum: 0, byMethod: { efectivo: 0, terminal: 0, transferencia: 0, cortesia: 0, legacy: 0 } },
-      range: { tabs: [], topItems: [], sum: 0, byMethod: { efectivo: 0, terminal: 0, transferencia: 0, cortesia: 0, legacy: 0 } },
+      day: {
+        tabs: [],
+        topItems: [],
+        sum: 0,
+        byMethod: { efectivo: 0, terminal: 0, propinaTerminal: 0, transferencia: 0, propinaTransferencia: 0, cortesia: 0, legacy: 0 },
+        dough: { cm30: 0, cm20: 0 },
+      },
+      week: {
+        tabs: [],
+        topItems: [],
+        sum: 0,
+        byMethod: { efectivo: 0, terminal: 0, propinaTerminal: 0, transferencia: 0, propinaTransferencia: 0, cortesia: 0, legacy: 0 },
+        dough: { cm30: 0, cm20: 0 },
+      },
+      month: {
+        tabs: [],
+        topItems: [],
+        sum: 0,
+        byMethod: { efectivo: 0, terminal: 0, propinaTerminal: 0, transferencia: 0, propinaTransferencia: 0, cortesia: 0, legacy: 0 },
+        dough: { cm30: 0, cm20: 0 },
+      },
+      range: {
+        tabs: [],
+        topItems: [],
+        sum: 0,
+        byMethod: { efectivo: 0, terminal: 0, propinaTerminal: 0, transferencia: 0, propinaTransferencia: 0, cortesia: 0, legacy: 0 },
+        dough: { cm30: 0, cm20: 0 },
+      },
     }
 
     const compute = (key: 'day' | 'week' | 'month' | 'range', start: number, end: number) => {
@@ -599,18 +634,42 @@ export default function AdminPage() {
         })
 
       let sum = 0
-      const byMethod = { efectivo: 0, terminal: 0, transferencia: 0, cortesia: 0, legacy: 0 }
+      const byMethod = { efectivo: 0, terminal: 0, propinaTerminal: 0, transferencia: 0, propinaTransferencia: 0, cortesia: 0, legacy: 0 }
       for (const t of tabsInRange) {
         const isPaid = Boolean(t?.paidAt?.toMillis)
         const total = isPaid ? Number(t.paidTotal ?? t.total ?? 0) : Number(t.total ?? 0)
         sum += total
 
+        const tip = isPaid ? Number(t?.tipAmount ?? 0) : 0
+        const tipOk = Number.isFinite(tip) && tip > 0 ? tip : 0
+        const baseTotal = Math.max(0, total - tipOk)
+
         const rawMethod = isPaid ? String(t?.paymentMethod ?? '') : 'legacy'
-        const m = rawMethod === 'efectivo' ? 'efectivo' : rawMethod === 'terminal' ? 'terminal' : rawMethod === 'transferencia' ? 'transferencia' : rawMethod === 'cortesia' ? 'cortesia' : 'legacy'
-        ;(byMethod as any)[m] = Number((byMethod as any)[m] ?? 0) + total
+        const m =
+          rawMethod === 'efectivo'
+            ? 'efectivo'
+            : rawMethod === 'terminal'
+              ? 'terminal'
+              : rawMethod === 'transferencia'
+                ? 'transferencia'
+                : rawMethod === 'cortesia'
+                  ? 'cortesia'
+                  : 'legacy'
+
+        if (m === 'terminal') {
+          byMethod.terminal += baseTotal
+          byMethod.propinaTerminal += tipOk
+        } else if (m === 'transferencia') {
+          byMethod.transferencia += baseTotal
+          byMethod.propinaTransferencia += tipOk
+        } else {
+          ;(byMethod as any)[m] = Number((byMethod as any)[m] ?? 0) + total
+        }
       }
 
       const qtyByName = new Map<string, number>()
+      let doughCm30 = 0
+      let doughCm20 = 0
       const ordersInRange = orders.filter((o) => {
         const ms = o?.createdAt?.toMillis ? o.createdAt.toMillis() : null
         return ms != null && ms >= start && ms < end
@@ -622,6 +681,17 @@ export default function AdminPage() {
           const q = Number(it?.qty ?? 0)
           if (!n || !Number.isFinite(q) || q <= 0) continue
           qtyByName.set(n, (qtyByName.get(n) ?? 0) + q)
+
+          const cat = String((it as any)?.categoryName ?? '').toLowerCase()
+          const size = String((it as any)?.size ?? '').toLowerCase()
+          const isPizza = cat.includes('pizza')
+          const isCalzone = cat.includes('calzone')
+          if (isCalzone) {
+            doughCm30 += q
+          } else if (isPizza) {
+            if (size.includes('20')) doughCm20 += q
+            else doughCm30 += q
+          }
         }
       }
       const topItems = Array.from(qtyByName.entries())
@@ -629,7 +699,7 @@ export default function AdminPage() {
         .sort((a, b) => b.qty - a.qty)
         .slice(0, 3)
 
-      byKey[key] = { tabs: tabsInRange, topItems, sum, byMethod }
+      byKey[key] = { tabs: tabsInRange, topItems, sum, byMethod, dough: { cm30: doughCm30, cm20: doughCm20 } }
     }
 
     compute('day', reportRanges.day.start, reportRanges.day.end)
@@ -639,6 +709,189 @@ export default function AdminPage() {
 
     return byKey
   }, [paidOrLegacyTabs, orders, reportRanges])
+
+  const reportDayOptions = React.useMemo(() => {
+    const d = new Date(now)
+    const todayStart = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0, 0).getTime()
+    const dayMs = 24 * 60 * 60 * 1000
+    const week = Array.from({ length: 7 }, (_, i) => todayStart - i * dayMs)
+    const month = Array.from({ length: 30 }, (_, i) => todayStart - i * dayMs)
+    return { week, month }
+  }, [now])
+
+  React.useEffect(() => {
+    if (!reportOpen) {
+      setReportDayMs(null)
+      return
+    }
+    if (reportOpen === 'week') {
+      setReportDayMs((prev) => (prev != null ? prev : reportDayOptions.week[0] ?? null))
+      return
+    }
+    if (reportOpen === 'month') {
+      setReportDayMs((prev) => (prev != null ? prev : reportDayOptions.month[0] ?? null))
+      return
+    }
+    setReportDayMs(null)
+  }, [reportDayOptions.month, reportDayOptions.week, reportOpen])
+
+  const computeRange = React.useCallback(
+    (start: number, end: number) => {
+      const tabsInRange = paidOrLegacyTabs
+        .filter((t) => {
+          const paidAtMs = t?.paidAt?.toMillis ? t.paidAt.toMillis() : null
+          const legacyAtMs = t?.closedAt?.toMillis ? t.closedAt.toMillis() : null
+          const ms = paidAtMs ?? legacyAtMs
+          return ms != null && ms >= start && ms < end
+        })
+        .sort((a, b) => {
+          const aMs = (a?.paidAt?.toMillis ? a.paidAt.toMillis() : a?.closedAt?.toMillis ? a.closedAt.toMillis() : 0) as number
+          const bMs = (b?.paidAt?.toMillis ? b.paidAt.toMillis() : b?.closedAt?.toMillis ? b.closedAt.toMillis() : 0) as number
+          return bMs - aMs
+        })
+
+      let sum = 0
+      const byMethod = { efectivo: 0, terminal: 0, propinaTerminal: 0, transferencia: 0, propinaTransferencia: 0, cortesia: 0, legacy: 0 }
+      for (const t of tabsInRange) {
+        const isPaid = Boolean(t?.paidAt?.toMillis)
+        const total = isPaid ? Number(t.paidTotal ?? t.total ?? 0) : Number(t.total ?? 0)
+        sum += total
+
+        const tip = isPaid ? Number(t?.tipAmount ?? 0) : 0
+        const tipOk = Number.isFinite(tip) && tip > 0 ? tip : 0
+        const baseTotal = Math.max(0, total - tipOk)
+
+        const rawMethod = isPaid ? String(t?.paymentMethod ?? '') : 'legacy'
+        const m =
+          rawMethod === 'efectivo'
+            ? 'efectivo'
+            : rawMethod === 'terminal'
+              ? 'terminal'
+              : rawMethod === 'transferencia'
+                ? 'transferencia'
+                : rawMethod === 'cortesia'
+                  ? 'cortesia'
+                  : 'legacy'
+
+        if (m === 'terminal') {
+          byMethod.terminal += baseTotal
+          byMethod.propinaTerminal += tipOk
+        } else if (m === 'transferencia') {
+          byMethod.transferencia += baseTotal
+          byMethod.propinaTransferencia += tipOk
+        } else {
+          ;(byMethod as any)[m] = Number((byMethod as any)[m] ?? 0) + total
+        }
+      }
+
+      const qtyByName = new Map<string, number>()
+      let doughCm30 = 0
+      let doughCm20 = 0
+      const ordersInRange = orders.filter((o) => {
+        const ms = o?.createdAt?.toMillis ? o.createdAt.toMillis() : null
+        return ms != null && ms >= start && ms < end
+      })
+      for (const o of ordersInRange) {
+        const its = Array.isArray(o.items) ? o.items : []
+        for (const it of its) {
+          const n = String(it?.name ?? '').trim()
+          const q = Number(it?.qty ?? 0)
+          if (!n || !Number.isFinite(q) || q <= 0) continue
+          qtyByName.set(n, (qtyByName.get(n) ?? 0) + q)
+
+          const cat = String((it as any)?.categoryName ?? '').toLowerCase()
+          const size = String((it as any)?.size ?? '').toLowerCase()
+          const isPizza = cat.includes('pizza')
+          const isCalzone = cat.includes('calzone')
+          if (isCalzone) {
+            doughCm30 += q
+          } else if (isPizza) {
+            if (size.includes('20')) doughCm20 += q
+            else doughCm30 += q
+          }
+        }
+      }
+      const topItems = Array.from(qtyByName.entries())
+        .map(([name, qty]) => ({ name, qty }))
+        .sort((a, b) => b.qty - a.qty || a.name.localeCompare(b.name))
+        .slice(0, 3)
+
+      return { tabs: tabsInRange, topItems, sum, byMethod, dough: { cm30: doughCm30, cm20: doughCm20 } }
+    },
+    [orders, paidOrLegacyTabs],
+  )
+
+  const reportEffective = React.useMemo(() => {
+    const dayMs = 24 * 60 * 60 * 1000
+    if (!reportOpen) return null
+    if (reportOpen === 'day') {
+      return { key: 'day' as const, label: 'Hoy', start: reportRanges.day.start, end: reportRanges.day.end }
+    }
+    if (reportOpen === 'week') {
+      const start = reportDayMs != null ? reportDayMs : reportRanges.week.start
+      const end = reportDayMs != null ? start + dayMs : reportRanges.week.end
+      const label = reportDayMs != null ? new Date(start).toLocaleDateString('es-MX', { weekday: 'short', day: '2-digit', month: '2-digit' }) : 'Semana'
+      return { key: 'week' as const, label, start, end }
+    }
+    if (reportOpen === 'month') {
+      const start = reportDayMs != null ? reportDayMs : reportRanges.month.start
+      const end = reportDayMs != null ? start + dayMs : reportRanges.month.end
+      const label = reportDayMs != null ? new Date(start).toLocaleDateString('es-MX', { day: '2-digit', month: '2-digit' }) : 'Mes'
+      return { key: 'month' as const, label, start, end }
+    }
+    if (reportOpen === 'range') {
+      const r = reportRanges.range
+      if (!r) return { key: 'range' as const, label: 'Rango', start: reportRanges.day.start, end: reportRanges.day.start }
+      return { key: 'range' as const, label: 'Rango', start: r.start, end: r.end }
+    }
+    return null
+  }, [reportDayMs, reportOpen, reportRanges.day.end, reportRanges.day.start, reportRanges.month.end, reportRanges.month.start, reportRanges.range, reportRanges.week.end, reportRanges.week.start])
+
+  const reportEffectiveDetails = React.useMemo(() => {
+    if (!reportEffective) return null
+    return computeRange(reportEffective.start, reportEffective.end)
+  }, [computeRange, reportEffective])
+
+  const reportItemsByTabId = React.useMemo(() => {
+    const out = new Map<string, Array<{ name: string; qty: number; amount: number }>>()
+    if (!reportEffective) return out
+    const start = reportEffective.start
+    const end = reportEffective.end
+
+    const byTab = new Map<string, Map<string, { qty: number; amount: number }>>()
+    for (const o of orders) {
+      const ms = o?.createdAt?.toMillis ? o.createdAt.toMillis() : null
+      if (ms == null || ms < start || ms >= end) continue
+      const tabId = String(o?.tabId ?? '').trim()
+      if (!tabId) continue
+      const its = Array.isArray(o?.items) ? o.items : []
+      for (const it of its) {
+        const name = String(it?.name ?? '').trim()
+        const qty = Number(it?.qty ?? 0)
+        if (!name || !Number.isFinite(qty) || qty <= 0) continue
+        const unit = Number((it as any)?.unitPrice ?? 0)
+        const unitOk = Number.isFinite(unit) && unit > 0 ? unit : 0
+        const delta = Math.round(unitOk * qty * 100) / 100
+
+        const m = byTab.get(tabId) ?? new Map<string, { qty: number; amount: number }>()
+        const cur = m.get(name) ?? { qty: 0, amount: 0 }
+        m.set(name, { qty: cur.qty + qty, amount: Math.round((cur.amount + delta) * 100) / 100 })
+        byTab.set(tabId, m)
+      }
+    }
+
+    for (const [tabId, m] of byTab.entries()) {
+      const rows = Array.from(m.entries())
+        .map(([name, v]) => ({ name, qty: v.qty, amount: v.amount }))
+        .sort((a, b) => b.qty - a.qty || a.name.localeCompare(b.name))
+      out.set(tabId, rows)
+    }
+    return out
+  }, [orders, reportEffective])
+
+  React.useEffect(() => {
+    setReportExpandedTabId(null)
+  }, [reportEffective?.start, reportEffective?.end, reportOpen])
 
   const downloadCsv = React.useCallback((rows: any[], filename: string) => {
     const esc = (v: any) => {
@@ -1485,7 +1738,17 @@ export default function AdminPage() {
                 Tarjeta: <strong style={{ color: '#111827' }}>{money(reportDetails.day.byMethod.terminal)}</strong>
               </div>
               <div className="muted" style={{ fontSize: 12 }}>
+                Propina tarjeta: <strong style={{ color: '#111827' }}>{money(reportDetails.day.byMethod.propinaTerminal)}</strong>
+              </div>
+              <div className="muted" style={{ fontSize: 12 }}>
                 Transferencia: <strong style={{ color: '#111827' }}>{money(reportDetails.day.byMethod.transferencia)}</strong>
+              </div>
+              <div className="muted" style={{ fontSize: 12 }}>
+                Propina transferencia: <strong style={{ color: '#111827' }}>{money(reportDetails.day.byMethod.propinaTransferencia)}</strong>
+              </div>
+              <div className="muted" style={{ fontSize: 12 }}>
+                Masas 30: <strong style={{ color: '#111827' }}>{Number(reportDetails.day.dough.cm30 ?? 0)}</strong> · Masas 20:{' '}
+                <strong style={{ color: '#111827' }}>{Number(reportDetails.day.dough.cm20 ?? 0)}</strong>
               </div>
             </button>
             <button
@@ -1524,7 +1787,17 @@ export default function AdminPage() {
                 Tarjeta: <strong style={{ color: '#111827' }}>{money(reportDetails.week.byMethod.terminal)}</strong>
               </div>
               <div className="muted" style={{ fontSize: 12 }}>
+                Propina tarjeta: <strong style={{ color: '#111827' }}>{money(reportDetails.week.byMethod.propinaTerminal)}</strong>
+              </div>
+              <div className="muted" style={{ fontSize: 12 }}>
                 Transferencia: <strong style={{ color: '#111827' }}>{money(reportDetails.week.byMethod.transferencia)}</strong>
+              </div>
+              <div className="muted" style={{ fontSize: 12 }}>
+                Propina transferencia: <strong style={{ color: '#111827' }}>{money(reportDetails.week.byMethod.propinaTransferencia)}</strong>
+              </div>
+              <div className="muted" style={{ fontSize: 12 }}>
+                Masas 30: <strong style={{ color: '#111827' }}>{Number(reportDetails.week.dough.cm30 ?? 0)}</strong> · Masas 20:{' '}
+                <strong style={{ color: '#111827' }}>{Number(reportDetails.week.dough.cm20 ?? 0)}</strong>
               </div>
             </button>
             <button
@@ -1563,7 +1836,17 @@ export default function AdminPage() {
                 Tarjeta: <strong style={{ color: '#111827' }}>{money(reportDetails.month.byMethod.terminal)}</strong>
               </div>
               <div className="muted" style={{ fontSize: 12 }}>
+                Propina tarjeta: <strong style={{ color: '#111827' }}>{money(reportDetails.month.byMethod.propinaTerminal)}</strong>
+              </div>
+              <div className="muted" style={{ fontSize: 12 }}>
                 Transferencia: <strong style={{ color: '#111827' }}>{money(reportDetails.month.byMethod.transferencia)}</strong>
+              </div>
+              <div className="muted" style={{ fontSize: 12 }}>
+                Propina transferencia: <strong style={{ color: '#111827' }}>{money(reportDetails.month.byMethod.propinaTransferencia)}</strong>
+              </div>
+              <div className="muted" style={{ fontSize: 12 }}>
+                Masas 30: <strong style={{ color: '#111827' }}>{Number(reportDetails.month.dough.cm30 ?? 0)}</strong> · Masas 20:{' '}
+                <strong style={{ color: '#111827' }}>{Number(reportDetails.month.dough.cm20 ?? 0)}</strong>
               </div>
             </button>
             <button
@@ -1611,7 +1894,17 @@ export default function AdminPage() {
                 Tarjeta: <strong style={{ color: '#111827' }}>{money(reportDetails.range.byMethod.terminal)}</strong>
               </div>
               <div className="muted" style={{ fontSize: 12 }}>
+                Propina tarjeta: <strong style={{ color: '#111827' }}>{money(reportDetails.range.byMethod.propinaTerminal)}</strong>
+              </div>
+              <div className="muted" style={{ fontSize: 12 }}>
                 Transferencia: <strong style={{ color: '#111827' }}>{money(reportDetails.range.byMethod.transferencia)}</strong>
+              </div>
+              <div className="muted" style={{ fontSize: 12 }}>
+                Propina transferencia: <strong style={{ color: '#111827' }}>{money(reportDetails.range.byMethod.propinaTransferencia)}</strong>
+              </div>
+              <div className="muted" style={{ fontSize: 12 }}>
+                Masas 30: <strong style={{ color: '#111827' }}>{Number(reportDetails.range.dough.cm30 ?? 0)}</strong> · Masas 20:{' '}
+                <strong style={{ color: '#111827' }}>{Number(reportDetails.range.dough.cm20 ?? 0)}</strong>
               </div>
             </button>
           </div>
@@ -1636,47 +1929,136 @@ export default function AdminPage() {
             <div className="card" style={{ margin: 0 }}>
               <div className="row" style={{ justifyContent: 'space-between' }}>
                 <div>
-                  <div style={{ fontWeight: 900 }}>Detalle · {reportOpen === 'day' ? 'Hoy' : reportOpen === 'week' ? 'Semana' : reportOpen === 'month' ? 'Mes' : 'Rango'}</div>
+                  <div style={{ fontWeight: 900 }}>
+                    Detalle · {reportEffective?.label ?? (reportOpen === 'day' ? 'Hoy' : reportOpen === 'week' ? 'Semana' : reportOpen === 'month' ? 'Mes' : 'Rango')}
+                  </div>
                   <div className="muted" style={{ fontSize: 12 }}>
-                    {reportDetails[reportOpen].tabs.length} venta(s) · Top productos: {reportDetails[reportOpen].topItems.length ? reportDetails[reportOpen].topItems.map((x) => `${x.name} (${x.qty})`).join(' · ') : '—'}
+                    {(reportEffectiveDetails?.tabs?.length ?? reportDetails[reportOpen].tabs.length)} venta(s) · Top productos:{' '}
+                    {(reportEffectiveDetails?.topItems?.length ?? reportDetails[reportOpen].topItems.length)
+                      ? (reportEffectiveDetails?.topItems ?? reportDetails[reportOpen].topItems).map((x) => `${x.name} (${x.qty})`).join(' · ')
+                      : '—'}
                   </div>
                 </div>
                 <button
                   className="button secondary"
-                  onClick={() => downloadCsv(reportDetails[reportOpen].tabs, `reporte_${reportOpen}_${new Date(now).toISOString().slice(0, 10)}.csv`)}
+                  onClick={() => downloadCsv((reportEffectiveDetails?.tabs ?? reportDetails[reportOpen].tabs) as any[], `reporte_${reportOpen}_${new Date(now).toISOString().slice(0, 10)}.csv`)}
                 >
                   Descargar CSV
                 </button>
               </div>
 
+              {reportOpen === 'week' || reportOpen === 'month' ? (
+                <>
+                  <div style={{ height: 10 }} />
+                  <div className="card" style={{ margin: 0, padding: 10 }}>
+                    <div className="muted" style={{ fontSize: 12, marginBottom: 8 }}>
+                      {reportOpen === 'week' ? 'Selecciona un día (últimos 7 días)' : 'Selecciona un día (últimos 30 días)'}
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 8 }}>
+                      {(reportOpen === 'week' ? reportDayOptions.week : reportDayOptions.month).map((ms) => {
+                        const active = reportDayMs === ms
+                        return (
+                          <button
+                            key={ms}
+                            className="button secondary"
+                            style={{ borderColor: active ? '#111827' : '#e5e7eb', justifyContent: 'space-between', display: 'flex' }}
+                            onClick={() => setReportDayMs(ms)}
+                          >
+                            <span>{new Date(ms).toLocaleDateString('es-MX', { weekday: reportOpen === 'week' ? 'short' : undefined, day: '2-digit', month: '2-digit' })}</span>
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </div>
+                </>
+              ) : null}
+
               <div style={{ height: 12 }} />
 
               <div className="card" style={{ margin: 0 }}>
-                <div className="row" style={{ justifyContent: 'space-between' }}>
+                <div className="row" style={{ justifyContent: 'space-between', padding: '6px 8px', borderRadius: 10, background: 'rgba(17,24,39,0.03)' }}>
                   <div className="muted" style={{ fontSize: 12 }}>Efectivo</div>
-                  <div style={{ fontWeight: 950 }}>{money(reportDetails[reportOpen].byMethod.efectivo)}</div>
+                  <div style={{ fontWeight: 950 }}>{money((reportEffectiveDetails?.byMethod ?? reportDetails[reportOpen].byMethod).efectivo)}</div>
                 </div>
-                <div className="row" style={{ justifyContent: 'space-between' }}>
+                <div className="row" style={{ justifyContent: 'space-between', padding: '6px 8px', borderRadius: 10 }}>
                   <div className="muted" style={{ fontSize: 12 }}>Tarjeta</div>
-                  <div style={{ fontWeight: 950 }}>{money(reportDetails[reportOpen].byMethod.terminal)}</div>
+                  <div style={{ fontWeight: 950 }}>{money((reportEffectiveDetails?.byMethod ?? reportDetails[reportOpen].byMethod).terminal)}</div>
                 </div>
-                <div className="row" style={{ justifyContent: 'space-between' }}>
+                <div className="row" style={{ justifyContent: 'space-between', padding: '6px 8px', borderRadius: 10, background: 'rgba(17,24,39,0.03)' }}>
+                  <div className="muted" style={{ fontSize: 12 }}>Propina tarjeta</div>
+                  <div style={{ fontWeight: 950 }}>{money((reportEffectiveDetails?.byMethod ?? reportDetails[reportOpen].byMethod).propinaTerminal)}</div>
+                </div>
+                <div className="row" style={{ justifyContent: 'space-between', padding: '6px 8px', borderRadius: 10 }}>
                   <div className="muted" style={{ fontSize: 12 }}>Transferencia</div>
-                  <div style={{ fontWeight: 950 }}>{money(reportDetails[reportOpen].byMethod.transferencia)}</div>
+                  <div style={{ fontWeight: 950 }}>{money((reportEffectiveDetails?.byMethod ?? reportDetails[reportOpen].byMethod).transferencia)}</div>
+                </div>
+                <div className="row" style={{ justifyContent: 'space-between', padding: '6px 8px', borderRadius: 10, background: 'rgba(17,24,39,0.03)' }}>
+                  <div className="muted" style={{ fontSize: 12 }}>Propina transferencia</div>
+                  <div style={{ fontWeight: 950 }}>{money((reportEffectiveDetails?.byMethod ?? reportDetails[reportOpen].byMethod).propinaTransferencia)}</div>
+                </div>
+                <div className="row" style={{ justifyContent: 'space-between', padding: '6px 8px', borderRadius: 10 }}>
+                  <div className="muted" style={{ fontSize: 12 }}>Masas 30</div>
+                  <div style={{ fontWeight: 950 }}>{Number((reportEffectiveDetails as any)?.dough?.cm30 ?? reportDetails[reportOpen].dough.cm30 ?? 0)}</div>
+                </div>
+                <div className="row" style={{ justifyContent: 'space-between', padding: '6px 8px', borderRadius: 10, background: 'rgba(17,24,39,0.03)' }}>
+                  <div className="muted" style={{ fontSize: 12 }}>Masas 20</div>
+                  <div style={{ fontWeight: 950 }}>{Number((reportEffectiveDetails as any)?.dough?.cm20 ?? reportDetails[reportOpen].dough.cm20 ?? 0)}</div>
                 </div>
               </div>
 
               <div style={{ height: 12 }} />
 
               <div style={{ display: 'grid', gap: 8 }}>
-                {reportDetails[reportOpen].tabs.length === 0 ? <div className="muted">Sin ventas en este rango.</div> : null}
-                {reportDetails[reportOpen].tabs.slice(0, 200).map((t) => (
-                  <div key={t.id} className="row" style={{ justifyContent: 'space-between' }}>
-                    <div className="muted" style={{ fontSize: 12 }}>
-                      {t.tableId ?? '—'}{t.tabName ? ` · ${t.tabName}` : ''} ·{' '}
-                      {t?.closedAt?.toDate ? t.closedAt.toDate().toLocaleString('es-MX', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' }) : '—'}
-                    </div>
-                    <div style={{ fontWeight: 900 }}>{money(Number(t.total ?? 0))}</div>
+                {(reportEffectiveDetails?.tabs ?? reportDetails[reportOpen].tabs).length === 0 ? <div className="muted">Sin ventas en este rango.</div> : null}
+                {(reportEffectiveDetails?.tabs ?? reportDetails[reportOpen].tabs).slice(0, 200).map((t) => (
+                  <div key={t.id} className="card" style={{ margin: 0, padding: 10, borderColor: reportExpandedTabId === String(t.id ?? '') ? '#111827' : undefined }}>
+                    <button
+                      type="button"
+                      className="row"
+                      style={{ justifyContent: 'space-between', width: '100%', textAlign: 'left', cursor: 'pointer', background: 'transparent', border: 'none', padding: 0 }}
+                      onClick={() => {
+                        const id = String(t.id ?? '')
+                        setReportExpandedTabId((prev) => (prev === id ? null : id))
+                      }}
+                    >
+                      <div className="muted" style={{ fontSize: 12 }}>
+                        {t.tableId ?? '—'}{t.tabName ? ` · ${t.tabName}` : ''} ·{' '}
+                        {t?.closedAt?.toDate ? t.closedAt.toDate().toLocaleString('es-MX', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' }) : '—'}
+                      </div>
+                      <div style={{ fontWeight: 900 }}>{money(Number(t.total ?? 0))}</div>
+                    </button>
+
+                    {reportExpandedTabId === String(t.id ?? '') ? (
+                      <>
+                        <div style={{ height: 8 }} />
+                        {(() => {
+                          const rows = reportItemsByTabId.get(String(t.id ?? '').trim()) ?? []
+                          if (!rows.length) return <div className="muted" style={{ fontSize: 12 }}>Sin productos (sin comandas en este rango).</div>
+                          return (
+                            <div style={{ display: 'grid', gap: 6 }}>
+                              {rows.slice(0, 30).map((x, idx) => (
+                                <div
+                                  key={x.name}
+                                  className="row"
+                                  style={{
+                                    justifyContent: 'space-between',
+                                    padding: '6px 8px',
+                                    borderRadius: 10,
+                                    background: idx % 2 === 0 ? 'rgba(17,24,39,0.03)' : 'transparent',
+                                  }}
+                                >
+                                  <div style={{ fontWeight: 700, fontSize: 12 }}>{x.name}</div>
+                                  <div className="row" style={{ gap: 10, justifyContent: 'flex-end' }}>
+                                    <div className="muted" style={{ fontSize: 12 }}>x{x.qty}</div>
+                                    <div style={{ fontWeight: 900, fontSize: 12 }}>{x.amount ? money(Number(x.amount ?? 0)) : ''}</div>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          )
+                        })()}
+                      </>
+                    ) : null}
                   </div>
                 ))}
               </div>
