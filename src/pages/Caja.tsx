@@ -272,7 +272,14 @@ export default function CajaPage() {
   }, [])
 
   const baseTableIds = Array.from({ length: 10 }, (_, i) => `mesa-${String(i + 1).padStart(2, '0')}`)
-  const openTabs = tabs.filter((t) => t.status === 'open')
+  const openTabsAll = tabs.filter((t) => t.status === 'open')
+  const INTERNAL_CREADORES = new Set(['pata', 'negra', 'caja'])
+  const isInternalTab = (t: any) => {
+    const n = String((t as any)?.createdByName ?? '').trim().toLowerCase()
+    return Boolean(n) && INTERNAL_CREADORES.has(n)
+  }
+  const openTabs = openTabsAll.filter((t) => !isInternalTab(t))
+  const internalOpenTabs = openTabsAll.filter((t) => isInternalTab(t))
   const paidOrLegacyTabs = tabs.filter((t) => t.status === 'closed' && !(t as any)?.isVoided)
   const pendingKitchen = orders.filter((o) => o.status === 'pending' && o.area === 'kitchen').length
   const pendingBar = orders.filter((o) => o.status === 'pending' && o.area === 'bar').length
@@ -610,7 +617,7 @@ export default function CajaPage() {
   )
 
   const openTabsByTable: Record<string, Tab[]> = {}
-  for (const t of openTabs) {
+  for (const t of openTabsAll) {
     if (!t.tableId) continue
     if (!openTabsByTable[t.tableId]) openTabsByTable[t.tableId] = []
     openTabsByTable[t.tableId].push(t)
@@ -624,7 +631,9 @@ export default function CajaPage() {
     .sort((a, b) => (Number.isFinite(a.n) ? a.n : 0) - (Number.isFinite(b.n) ? b.n : 0))
     .map((x) => x.id)
 
-  const takeoutOpenTabs = takeoutTableIds.flatMap((id) => openTabsByTable[id] ?? [])
+  const takeoutOpenTabsAll = takeoutTableIds.flatMap((id) => openTabsByTable[id] ?? [])
+  const takeoutOpenTabs = takeoutOpenTabsAll.filter((t) => !isInternalTab(t))
+  const internalTakeoutOpenTabs = takeoutOpenTabsAll.filter((t) => isInternalTab(t))
   const takeoutPendingKitchen = orders.filter((o) => o.status === 'pending' && o.area === 'kitchen' && String(o.tableId ?? '').startsWith('togo-')).length
   const takeoutPendingBar = orders.filter((o) => o.status === 'pending' && o.area === 'bar' && String(o.tableId ?? '').startsWith('togo-')).length
 
@@ -1076,6 +1085,11 @@ export default function CajaPage() {
                 <div className="muted" style={{ fontSize: 12 }}>
                   Cuentas abiertas: <strong style={{ color: '#111827' }}>{openTabs.length}</strong>
                 </div>
+                {internalOpenTabs.length ? (
+                  <div className="muted" style={{ fontSize: 12 }}>
+                    Internas: <strong style={{ color: '#111827' }}>{internalOpenTabs.length}</strong>
+                  </div>
+                ) : null}
                 <div className="muted" style={{ fontSize: 12 }}>
                   Órdenes pendientes: <strong style={{ color: '#111827' }}>{pendingKitchen}</strong> cocina · <strong style={{ color: '#111827' }}>{pendingBar}</strong> barra
                 </div>
@@ -1086,6 +1100,11 @@ export default function CajaPage() {
                 <div className="muted" style={{ fontSize: 12 }}>
                   Cuentas abiertas: <strong style={{ color: '#111827' }}>{takeoutOpenTabs.length}</strong>
                 </div>
+                {internalTakeoutOpenTabs.length ? (
+                  <div className="muted" style={{ fontSize: 12 }}>
+                    Internas: <strong style={{ color: '#111827' }}>{internalTakeoutOpenTabs.length}</strong>
+                  </div>
+                ) : null}
                 <div className="muted" style={{ fontSize: 12 }}>
                   Órdenes pendientes: <strong style={{ color: '#111827' }}>{takeoutPendingKitchen}</strong> cocina · <strong style={{ color: '#111827' }}>{takeoutPendingBar}</strong> barra
                 </div>

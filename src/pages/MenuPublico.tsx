@@ -330,12 +330,11 @@ export default function MenuPublicoPage() {
           { name: 'Pepperoni', unitPrice: 35 },
           { name: 'Jamón', unitPrice: 35 },
           { name: 'Salchicha', unitPrice: 35 },
-          { name: 'Pollo', unitPrice: 35 },
           { name: 'Jamón serrano', unitPrice: 80 },
         ],
       },
       { label: 'Mariscos', items: [{ name: 'Ostiones', unitPrice: 60 }] },
-      { label: 'Quesos', items: [{ name: 'Extra queso', unitPrice: 35 }, { name: 'Queso parmesano', unitPrice: 35 }] },
+      { label: 'Quesos', items: [{ name: 'Extra queso', unitPrice: 35 }, { name: 'Queso parmesano', unitPrice: 35 }, { name: 'Queso de cabra', unitPrice: 35 }] },
       {
         label: 'Verduras',
         items: [

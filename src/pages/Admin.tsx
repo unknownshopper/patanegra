@@ -404,6 +404,8 @@ export default function AdminPage() {
   const [rangeEnd, setRangeEnd] = React.useState('')
   const [reportDayMs, setReportDayMs] = React.useState<number | null>(null)
   const [reportExpandedTabId, setReportExpandedTabId] = React.useState<string | null>(null)
+  const [reportSubView, setReportSubView] = React.useState<'summary' | 'top' | 'waiters'>('summary')
+  const [reportExpandedStaffKey, setReportExpandedStaffKey] = React.useState<string | null>(null)
 
   React.useEffect(() => {
     const t = window.setInterval(() => setNow(Date.now()), 15_000)
@@ -687,7 +689,7 @@ export default function AdminPage() {
           const isPizza = cat.includes('pizza')
           const isCalzone = cat.includes('calzone')
           if (isCalzone) {
-            doughCm30 += q
+            doughCm20 += q
           } else if (isPizza) {
             if (size.includes('20')) doughCm20 += q
             else doughCm30 += q
@@ -722,6 +724,7 @@ export default function AdminPage() {
   React.useEffect(() => {
     if (!reportOpen) {
       setReportDayMs(null)
+      setReportSubView('summary')
       return
     }
     if (reportOpen === 'week') {
@@ -804,7 +807,7 @@ export default function AdminPage() {
           const isPizza = cat.includes('pizza')
           const isCalzone = cat.includes('calzone')
           if (isCalzone) {
-            doughCm30 += q
+            doughCm20 += q
           } else if (isPizza) {
             if (size.includes('20')) doughCm20 += q
             else doughCm30 += q
@@ -891,7 +894,239 @@ export default function AdminPage() {
 
   React.useEffect(() => {
     setReportExpandedTabId(null)
+    setReportExpandedStaffKey(null)
+    setReportSubView('summary')
   }, [reportEffective?.start, reportEffective?.end, reportOpen])
+
+  const reportTopByBucket = React.useMemo(() => {
+    const start = reportEffective?.start
+    const end = reportEffective?.end
+    const out = {
+      pizzas: [] as Array<{ name: string; qty: number; amount: number }>,
+      calzones: [] as Array<{ name: string; qty: number; amount: number }>,
+      bebidas: [] as Array<{ name: string; qty: number; amount: number }>,
+      jarras: [] as Array<{ name: string; qty: number; amount: number }>,
+      otrosAlimentos: [] as Array<{ name: string; qty: number; amount: number }>,
+    }
+    if (start == null || end == null) return out
+
+    const categoryNameById = new Map<string, string>()
+    for (const c of categories) categoryNameById.set(String(c.id), String((c as any)?.name ?? ''))
+
+    const norm = (s: any) => String(s ?? '').toLowerCase()
+    const isDrinkCategoryName = (catName: string) => {
+      const c = norm(catName)
+      return (
+        c.includes('bebid') ||
+        c.includes('bar') ||
+        c.includes('coctel') ||
+        c.includes('cocktail') ||
+        c.includes('vino') ||
+        c.includes('cerve') ||
+        c.includes('refresco') ||
+        c.includes('soda') ||
+        c.includes('agua') ||
+        c.includes('jug')
+      )
+    }
+
+    const isJarraNameOrCategory = (name: string, catName: string) => {
+      const n = norm(name)
+      const c = norm(catName)
+      return n.includes('jarra') || c.includes('jarra')
+    }
+
+    const isDrinkNameFallback = (name: string) => {
+      const n = norm(name)
+      return n.includes('sangria') || n.includes('sangría') || n.includes('tinto') || n.includes('verano')
+    }
+
+    // Aggregate sold qty/amount by menu item id (fallback to name if missing)
+    const soldByKey = new Map<string, { qty: number; amount: number }>()
+    for (const o of orders) {
+      const ms = o?.createdAt?.toMillis ? o.createdAt.toMillis() : null
+      if (ms == null || ms < start || ms >= end) continue
+      const its = Array.isArray(o?.items) ? o.items : []
+      for (const it of its) {
+        const itemId = String(it?.itemId ?? '').trim()
+        const name = String(it?.name ?? '').trim()
+        const key = itemId || name
+        const qty = Number(it?.qty ?? 0)
+        if (!key || !name || !Number.isFinite(qty) || qty <= 0) continue
+        const unit = Number(it?.unitPrice ?? 0)
+        const unitOk = Number.isFinite(unit) && unit > 0 ? unit : 0
+        const delta = Math.round(unitOk * qty * 100) / 100
+        const cur = soldByKey.get(key) ?? { qty: 0, amount: 0 }
+        soldByKey.set(key, { qty: cur.qty + qty, amount: Math.round((cur.amount + delta) * 100) / 100 })
+      }
+    }
+
+    const bucketKeyFromMenuItem = (mi: any) => {
+      const name = String(mi?.name ?? '')
+      const catName = String(categoryNameById.get(String(mi?.categoryId ?? '')) ?? '')
+      const catNorm = norm(catName)
+      const isPizza = catNorm.includes('pizza')
+      const isCalzone = catNorm.includes('calzone')
+      const isJarra = isJarraNameOrCategory(name, catName)
+      const isDrink = isDrinkCategoryName(catName) || isDrinkNameFallback(name)
+      if (isPizza) return 'pizzas' as const
+      if (isCalzone) return 'calzones' as const
+      if (isJarra) return 'jarras' as const
+      if (isDrink) return 'bebidas' as const
+      return 'otrosAlimentos' as const
+    }
+
+    const m = {
+      pizzas: new Map<string, { qty: number; amount: number }>(),
+      calzones: new Map<string, { qty: number; amount: number }>(),
+      bebidas: new Map<string, { qty: number; amount: number }>(),
+      jarras: new Map<string, { qty: number; amount: number }>(),
+      otrosAlimentos: new Map<string, { qty: number; amount: number }>(),
+    }
+
+    // Build rows from menu catalog so we also list items with qty 0
+    const menuRows = items
+      .filter((x) => Boolean((x as any)?.isActive ?? true))
+      .map((mi) => {
+        const id = String((mi as any)?.id ?? '')
+        const name = String((mi as any)?.name ?? '').trim()
+        const sold = soldByKey.get(id) ?? soldByKey.get(name) ?? { qty: 0, amount: 0 }
+        const bucket = bucketKeyFromMenuItem(mi)
+        return { bucket, name, qty: sold.qty, amount: sold.amount }
+      })
+
+    for (const r of menuRows) {
+      const cur = m[r.bucket].get(r.name) ?? { qty: 0, amount: 0 }
+      // if the same name appears multiple times in menu (shouldn't), sum it
+      m[r.bucket].set(r.name, { qty: cur.qty + r.qty, amount: Math.round((cur.amount + r.amount) * 100) / 100 })
+    }
+
+    const toRows = (mm: Map<string, { qty: number; amount: number }>) =>
+      Array.from(mm.entries())
+        .map(([name, v]) => ({ name, qty: v.qty, amount: v.amount }))
+        .sort((a, b) => b.qty - a.qty || b.amount - a.amount || a.name.localeCompare(b.name))
+
+
+    out.pizzas = toRows(m.pizzas)
+    out.calzones = toRows(m.calzones)
+    out.bebidas = toRows(m.bebidas)
+    out.jarras = toRows(m.jarras)
+    out.otrosAlimentos = toRows(m.otrosAlimentos)
+    return out
+  }, [orders, reportEffective?.end, reportEffective?.start])
+
+  const reportByWaiter = React.useMemo(() => {
+    if (!reportOpen) return [] as Array<{ name: string; tabs: number; total: number; tips: number }>
+    const tabs = (reportEffectiveDetails?.tabs ?? reportDetails[reportOpen].tabs) as any[]
+    const m = new Map<string, { tabs: number; total: number; tips: number }>()
+    for (const t of tabs) {
+      const name = String(t?.createdByName ?? '').trim() || '—'
+      const isPaid = Boolean(t?.paidAt?.toMillis)
+      const total = isPaid ? Number(t?.paidTotal ?? t?.total ?? 0) : Number(t?.total ?? 0)
+      const tip = isPaid ? Number(t?.tipAmount ?? 0) : 0
+      const tipOk = Number.isFinite(tip) && tip > 0 ? tip : 0
+      const prev = m.get(name) ?? { tabs: 0, total: 0, tips: 0 }
+      m.set(name, {
+        tabs: prev.tabs + 1,
+        total: Math.round((prev.total + (Number.isFinite(total) ? total : 0)) * 100) / 100,
+        tips: Math.round((prev.tips + tipOk) * 100) / 100,
+      })
+    }
+    return Array.from(m.entries())
+      .map(([name, v]) => ({ name, ...v }))
+      .sort((a, b) => b.total - a.total || b.tabs - a.tabs || a.name.localeCompare(b.name))
+  }, [reportDetails, reportEffectiveDetails?.tabs, reportOpen])
+
+  const reportByCashier = React.useMemo(() => {
+    if (!reportOpen) return [] as Array<{ name: string; tabs: number; total: number; tips: number }>
+    const tabs = (reportEffectiveDetails?.tabs ?? reportDetails[reportOpen].tabs) as any[]
+    const m = new Map<string, { tabs: number; total: number; tips: number }>()
+    for (const t of tabs) {
+      const isPaid = Boolean(t?.paidAt?.toMillis)
+      if (!isPaid) continue
+      const name = String(t?.paidByName ?? '').trim() || '—'
+      const total = Number(t?.paidTotal ?? t?.total ?? 0)
+      const tip = Number(t?.tipAmount ?? 0)
+      const tipOk = Number.isFinite(tip) && tip > 0 ? tip : 0
+      const prev = m.get(name) ?? { tabs: 0, total: 0, tips: 0 }
+      m.set(name, {
+        tabs: prev.tabs + 1,
+        total: Math.round((prev.total + (Number.isFinite(total) ? total : 0)) * 100) / 100,
+        tips: Math.round((prev.tips + tipOk) * 100) / 100,
+      })
+    }
+    return Array.from(m.entries())
+      .map(([name, v]) => ({ name, ...v }))
+      .sort((a, b) => b.total - a.total || b.tabs - a.tabs || a.name.localeCompare(b.name))
+  }, [reportDetails, reportEffectiveDetails?.tabs, reportOpen])
+
+  const reportItemsByCreatedBy = React.useMemo(() => {
+    if (!reportOpen) return new Map<string, Array<{ name: string; qty: number; amount: number }>>()
+    const tabs = (reportEffectiveDetails?.tabs ?? reportDetails[reportOpen].tabs) as any[]
+    const agg = new Map<string, Map<string, { qty: number; amount: number }>>()
+
+    for (const t of tabs) {
+      const staff = String(t?.createdByName ?? '').trim() || '—'
+      const tabId = String(t?.id ?? '').trim()
+      if (!tabId) continue
+      const rows = reportItemsByTabId.get(tabId) ?? []
+      const m = agg.get(staff) ?? new Map<string, { qty: number; amount: number }>()
+      for (const r of rows) {
+        const name = String(r?.name ?? '').trim()
+        const qty = Number(r?.qty ?? 0)
+        const amount = Number((r as any)?.amount ?? 0)
+        if (!name || !Number.isFinite(qty) || qty <= 0) continue
+        const cur = m.get(name) ?? { qty: 0, amount: 0 }
+        m.set(name, { qty: cur.qty + qty, amount: Math.round((cur.amount + (Number.isFinite(amount) ? amount : 0)) * 100) / 100 })
+      }
+      agg.set(staff, m)
+    }
+
+    const out = new Map<string, Array<{ name: string; qty: number; amount: number }>>() 
+    for (const [staff, m] of agg.entries()) {
+      out.set(
+        staff,
+        Array.from(m.entries())
+          .map(([name, v]) => ({ name, qty: v.qty, amount: v.amount }))
+          .sort((a, b) => b.qty - a.qty || b.amount - a.amount || a.name.localeCompare(b.name)),
+      )
+    }
+    return out
+  }, [reportDetails, reportEffectiveDetails?.tabs, reportItemsByTabId, reportOpen])
+
+  const reportItemsByPaidBy = React.useMemo(() => {
+    if (!reportOpen) return new Map<string, Array<{ name: string; qty: number; amount: number }>>()
+    const tabs = (reportEffectiveDetails?.tabs ?? reportDetails[reportOpen].tabs) as any[]
+    const agg = new Map<string, Map<string, { qty: number; amount: number }>>()
+
+    for (const t of tabs) {
+      const staff = String(t?.paidByName ?? '').trim() || '—'
+      const tabId = String(t?.id ?? '').trim()
+      if (!tabId) continue
+      const rows = reportItemsByTabId.get(tabId) ?? []
+      const m = agg.get(staff) ?? new Map<string, { qty: number; amount: number }>()
+      for (const r of rows) {
+        const name = String(r?.name ?? '').trim()
+        const qty = Number(r?.qty ?? 0)
+        const amount = Number((r as any)?.amount ?? 0)
+        if (!name || !Number.isFinite(qty) || qty <= 0) continue
+        const cur = m.get(name) ?? { qty: 0, amount: 0 }
+        m.set(name, { qty: cur.qty + qty, amount: Math.round((cur.amount + (Number.isFinite(amount) ? amount : 0)) * 100) / 100 })
+      }
+      agg.set(staff, m)
+    }
+
+    const out = new Map<string, Array<{ name: string; qty: number; amount: number }>>()
+    for (const [staff, m] of agg.entries()) {
+      out.set(
+        staff,
+        Array.from(m.entries())
+          .map(([name, v]) => ({ name, qty: v.qty, amount: v.amount }))
+          .sort((a, b) => b.qty - a.qty || b.amount - a.amount || a.name.localeCompare(b.name)),
+      )
+    }
+    return out
+  }, [reportDetails, reportEffectiveDetails?.tabs, reportItemsByTabId, reportOpen])
 
   const downloadCsv = React.useCallback((rows: any[], filename: string) => {
     const esc = (v: any) => {
@@ -1939,12 +2174,35 @@ export default function AdminPage() {
                       : '—'}
                   </div>
                 </div>
-                <button
-                  className="button secondary"
-                  onClick={() => downloadCsv((reportEffectiveDetails?.tabs ?? reportDetails[reportOpen].tabs) as any[], `reporte_${reportOpen}_${new Date(now).toISOString().slice(0, 10)}.csv`)}
-                >
-                  Descargar CSV
-                </button>
+                <div className="row" style={{ gap: 8 }}>
+                  <button
+                    type="button"
+                    className={reportSubView === 'summary' ? 'button' : 'button secondary'}
+                    onClick={() => setReportSubView('summary')}
+                  >
+                    Resumen
+                  </button>
+                  <button
+                    type="button"
+                    className={reportSubView === 'top' ? 'button' : 'button secondary'}
+                    onClick={() => setReportSubView('top')}
+                  >
+                    Top productos
+                  </button>
+                  <button
+                    type="button"
+                    className={reportSubView === 'waiters' ? 'button' : 'button secondary'}
+                    onClick={() => setReportSubView('waiters')}
+                  >
+                    Meseros
+                  </button>
+                  <button
+                    className="button secondary"
+                    onClick={() => downloadCsv((reportEffectiveDetails?.tabs ?? reportDetails[reportOpen].tabs) as any[], `reporte_${reportOpen}_${new Date(now).toISOString().slice(0, 10)}.csv`)}
+                  >
+                    Descargar CSV
+                  </button>
+                </div>
               </div>
 
               {reportOpen === 'week' || reportOpen === 'month' ? (
@@ -1975,68 +2233,120 @@ export default function AdminPage() {
 
               <div style={{ height: 12 }} />
 
-              <div className="card" style={{ margin: 0 }}>
-                <div className="row" style={{ justifyContent: 'space-between', padding: '6px 8px', borderRadius: 10, background: 'rgba(17,24,39,0.03)' }}>
-                  <div className="muted" style={{ fontSize: 12 }}>Efectivo</div>
-                  <div style={{ fontWeight: 950 }}>{money((reportEffectiveDetails?.byMethod ?? reportDetails[reportOpen].byMethod).efectivo)}</div>
-                </div>
-                <div className="row" style={{ justifyContent: 'space-between', padding: '6px 8px', borderRadius: 10 }}>
-                  <div className="muted" style={{ fontSize: 12 }}>Tarjeta</div>
-                  <div style={{ fontWeight: 950 }}>{money((reportEffectiveDetails?.byMethod ?? reportDetails[reportOpen].byMethod).terminal)}</div>
-                </div>
-                <div className="row" style={{ justifyContent: 'space-between', padding: '6px 8px', borderRadius: 10, background: 'rgba(17,24,39,0.03)' }}>
-                  <div className="muted" style={{ fontSize: 12 }}>Propina tarjeta</div>
-                  <div style={{ fontWeight: 950 }}>{money((reportEffectiveDetails?.byMethod ?? reportDetails[reportOpen].byMethod).propinaTerminal)}</div>
-                </div>
-                <div className="row" style={{ justifyContent: 'space-between', padding: '6px 8px', borderRadius: 10 }}>
-                  <div className="muted" style={{ fontSize: 12 }}>Transferencia</div>
-                  <div style={{ fontWeight: 950 }}>{money((reportEffectiveDetails?.byMethod ?? reportDetails[reportOpen].byMethod).transferencia)}</div>
-                </div>
-                <div className="row" style={{ justifyContent: 'space-between', padding: '6px 8px', borderRadius: 10, background: 'rgba(17,24,39,0.03)' }}>
-                  <div className="muted" style={{ fontSize: 12 }}>Propina transferencia</div>
-                  <div style={{ fontWeight: 950 }}>{money((reportEffectiveDetails?.byMethod ?? reportDetails[reportOpen].byMethod).propinaTransferencia)}</div>
-                </div>
-                <div className="row" style={{ justifyContent: 'space-between', padding: '6px 8px', borderRadius: 10 }}>
-                  <div className="muted" style={{ fontSize: 12 }}>Masas 30</div>
-                  <div style={{ fontWeight: 950 }}>{Number((reportEffectiveDetails as any)?.dough?.cm30 ?? reportDetails[reportOpen].dough.cm30 ?? 0)}</div>
-                </div>
-                <div className="row" style={{ justifyContent: 'space-between', padding: '6px 8px', borderRadius: 10, background: 'rgba(17,24,39,0.03)' }}>
-                  <div className="muted" style={{ fontSize: 12 }}>Masas 20</div>
-                  <div style={{ fontWeight: 950 }}>{Number((reportEffectiveDetails as any)?.dough?.cm20 ?? reportDetails[reportOpen].dough.cm20 ?? 0)}</div>
-                </div>
-              </div>
+              {reportSubView === 'summary' ? (
+                <>
+                  <div className="card" style={{ margin: 0 }}>
+                    <div className="row" style={{ justifyContent: 'space-between', padding: '6px 8px', borderRadius: 10, background: 'rgba(17,24,39,0.03)' }}>
+                      <div className="muted" style={{ fontSize: 12 }}>Efectivo</div>
+                      <div style={{ fontWeight: 950 }}>{money((reportEffectiveDetails?.byMethod ?? reportDetails[reportOpen].byMethod).efectivo)}</div>
+                    </div>
+                    <div className="row" style={{ justifyContent: 'space-between', padding: '6px 8px', borderRadius: 10 }}>
+                      <div className="muted" style={{ fontSize: 12 }}>Tarjeta</div>
+                      <div style={{ fontWeight: 950 }}>{money((reportEffectiveDetails?.byMethod ?? reportDetails[reportOpen].byMethod).terminal)}</div>
+                    </div>
+                    <div className="row" style={{ justifyContent: 'space-between', padding: '6px 8px', borderRadius: 10, background: 'rgba(17,24,39,0.03)' }}>
+                      <div className="muted" style={{ fontSize: 12 }}>Propina tarjeta</div>
+                      <div style={{ fontWeight: 950 }}>{money((reportEffectiveDetails?.byMethod ?? reportDetails[reportOpen].byMethod).propinaTerminal)}</div>
+                    </div>
+                    <div className="row" style={{ justifyContent: 'space-between', padding: '6px 8px', borderRadius: 10 }}>
+                      <div className="muted" style={{ fontSize: 12 }}>Transferencia</div>
+                      <div style={{ fontWeight: 950 }}>{money((reportEffectiveDetails?.byMethod ?? reportDetails[reportOpen].byMethod).transferencia)}</div>
+                    </div>
+                    <div className="row" style={{ justifyContent: 'space-between', padding: '6px 8px', borderRadius: 10, background: 'rgba(17,24,39,0.03)' }}>
+                      <div className="muted" style={{ fontSize: 12 }}>Propina transferencia</div>
+                      <div style={{ fontWeight: 950 }}>{money((reportEffectiveDetails?.byMethod ?? reportDetails[reportOpen].byMethod).propinaTransferencia)}</div>
+                    </div>
+                    <div className="row" style={{ justifyContent: 'space-between', padding: '6px 8px', borderRadius: 10 }}>
+                      <div className="muted" style={{ fontSize: 12 }}>Masas 30</div>
+                      <div style={{ fontWeight: 950 }}>{Number((reportEffectiveDetails as any)?.dough?.cm30 ?? reportDetails[reportOpen].dough.cm30 ?? 0)}</div>
+                    </div>
+                    <div className="row" style={{ justifyContent: 'space-between', padding: '6px 8px', borderRadius: 10, background: 'rgba(17,24,39,0.03)' }}>
+                      <div className="muted" style={{ fontSize: 12 }}>Masas 20</div>
+                      <div style={{ fontWeight: 950 }}>{Number((reportEffectiveDetails as any)?.dough?.cm20 ?? reportDetails[reportOpen].dough.cm20 ?? 0)}</div>
+                    </div>
+                  </div>
 
-              <div style={{ height: 12 }} />
+                  <div style={{ height: 12 }} />
 
-              <div style={{ display: 'grid', gap: 8 }}>
-                {(reportEffectiveDetails?.tabs ?? reportDetails[reportOpen].tabs).length === 0 ? <div className="muted">Sin ventas en este rango.</div> : null}
-                {(reportEffectiveDetails?.tabs ?? reportDetails[reportOpen].tabs).slice(0, 200).map((t) => (
-                  <div key={t.id} className="card" style={{ margin: 0, padding: 10, borderColor: reportExpandedTabId === String(t.id ?? '') ? '#111827' : undefined }}>
-                    <button
-                      type="button"
-                      className="row"
-                      style={{ justifyContent: 'space-between', width: '100%', textAlign: 'left', cursor: 'pointer', background: 'transparent', border: 'none', padding: 0 }}
-                      onClick={() => {
-                        const id = String(t.id ?? '')
-                        setReportExpandedTabId((prev) => (prev === id ? null : id))
-                      }}
-                    >
-                      <div className="muted" style={{ fontSize: 12 }}>
-                        {t.tableId ?? '—'}{t.tabName ? ` · ${t.tabName}` : ''} ·{' '}
-                        {t?.closedAt?.toDate ? t.closedAt.toDate().toLocaleString('es-MX', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' }) : '—'}
+                  <div style={{ display: 'grid', gap: 8 }}>
+                    {(reportEffectiveDetails?.tabs ?? reportDetails[reportOpen].tabs).length === 0 ? <div className="muted">Sin ventas en este rango.</div> : null}
+                    {(reportEffectiveDetails?.tabs ?? reportDetails[reportOpen].tabs).slice(0, 200).map((t) => (
+                      <div key={t.id} className="card" style={{ margin: 0, padding: 10, borderColor: reportExpandedTabId === String(t.id ?? '') ? '#111827' : undefined }}>
+                        <button
+                          type="button"
+                          className="row"
+                          style={{ justifyContent: 'space-between', width: '100%', textAlign: 'left', cursor: 'pointer', background: 'transparent', border: 'none', padding: 0 }}
+                          onClick={() => {
+                            const id = String(t.id ?? '')
+                            setReportExpandedTabId((prev) => (prev === id ? null : id))
+                          }}
+                        >
+                          <div className="muted" style={{ fontSize: 12 }}>
+                            {t.tableId ?? '—'}{t.tabName ? ` · ${t.tabName}` : ''} ·{' '}
+                            {t?.closedAt?.toDate ? t.closedAt.toDate().toLocaleString('es-MX', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' }) : '—'}
+                          </div>
+                          <div style={{ fontWeight: 900 }}>{money(Number(t.total ?? 0))}</div>
+                        </button>
+
+                        {reportExpandedTabId === String(t.id ?? '') ? (
+                          <>
+                            <div style={{ height: 8 }} />
+                            {(() => {
+                              const rows = reportItemsByTabId.get(String(t.id ?? '').trim()) ?? []
+                              if (!rows.length) return <div className="muted" style={{ fontSize: 12 }}>Sin productos (sin comandas en este rango).</div>
+                              return (
+                                <div style={{ display: 'grid', gap: 6 }}>
+                                  {rows.slice(0, 30).map((x, idx) => (
+                                    <div
+                                      key={x.name}
+                                      className="row"
+                                      style={{
+                                        justifyContent: 'space-between',
+                                        padding: '6px 8px',
+                                        borderRadius: 10,
+                                        background: idx % 2 === 0 ? 'rgba(17,24,39,0.03)' : 'transparent',
+                                      }}
+                                    >
+                                      <div style={{ fontWeight: 700, fontSize: 12 }}>{x.name}</div>
+                                      <div className="row" style={{ gap: 10, justifyContent: 'flex-end' }}>
+                                        <div className="muted" style={{ fontSize: 12 }}>x{x.qty}</div>
+                                        <div style={{ fontWeight: 900, fontSize: 12 }}>{x.amount ? money(Number(x.amount ?? 0)) : ''}</div>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              )
+                            })()}
+                          </>
+                        ) : null}
                       </div>
-                      <div style={{ fontWeight: 900 }}>{money(Number(t.total ?? 0))}</div>
-                    </button>
-
-                    {reportExpandedTabId === String(t.id ?? '') ? (
-                      <>
-                        <div style={{ height: 8 }} />
-                        {(() => {
-                          const rows = reportItemsByTabId.get(String(t.id ?? '').trim()) ?? []
-                          if (!rows.length) return <div className="muted" style={{ fontSize: 12 }}>Sin productos (sin comandas en este rango).</div>
-                          return (
+                    ))}
+                  </div>
+                </>
+              ) : reportSubView === 'top' ? (
+                <>
+                  <div className="card" style={{ margin: 0 }}>
+                    <div style={{ display: 'grid', gap: 12 }}>
+                      {(
+                        [
+                          { key: 'pizzas' as const, title: 'Pizzas' },
+                          { key: 'calzones' as const, title: 'Calzones' },
+                          { key: 'otrosAlimentos' as const, title: 'Otros alimentos' },
+                          { key: 'bebidas' as const, title: 'Bebidas' },
+                          { key: 'jarras' as const, title: 'Jarras' },
+                        ] as const
+                      ).map((sec) => {
+                        const rows = reportTopByBucket[sec.key] ?? []
+                        return (
+                          <div key={sec.key}>
+                            <div className="row" style={{ justifyContent: 'space-between' }}>
+                              <div style={{ fontWeight: 900 }}>{sec.title}</div>
+                              <div className="muted" style={{ fontSize: 12 }}>Top</div>
+                            </div>
+                            <div style={{ height: 8 }} />
+                            {!rows.length ? <div className="muted" style={{ fontSize: 12 }}>Sin ventas en este rango.</div> : null}
                             <div style={{ display: 'grid', gap: 6 }}>
-                              {rows.slice(0, 30).map((x, idx) => (
+                              {rows.map((x, idx) => (
                                 <div
                                   key={x.name}
                                   className="row"
@@ -2047,42 +2357,157 @@ export default function AdminPage() {
                                     background: idx % 2 === 0 ? 'rgba(17,24,39,0.03)' : 'transparent',
                                   }}
                                 >
-                                  <div style={{ fontWeight: 700, fontSize: 12 }}>{x.name}</div>
+                                  <div style={{ fontWeight: 800, fontSize: 12 }}>{x.name}</div>
                                   <div className="row" style={{ gap: 10, justifyContent: 'flex-end' }}>
                                     <div className="muted" style={{ fontSize: 12 }}>x{x.qty}</div>
-                                    <div style={{ fontWeight: 900, fontSize: 12 }}>{x.amount ? money(Number(x.amount ?? 0)) : ''}</div>
+                                    <div style={{ fontWeight: 950, fontSize: 12 }}>{x.amount ? money(Number(x.amount ?? 0)) : ''}</div>
                                   </div>
                                 </div>
                               ))}
                             </div>
-                          )
-                        })()}
-                      </>
-                    ) : null}
+                          </div>
+                        )
+                      })}
+                    </div>
                   </div>
-                ))}
-              </div>
+                </>
+              ) : (
+                <>
+                  <div className="card" style={{ margin: 0 }}>
+                    {!reportByWaiter.length ? <div className="muted">Sin ventas en este rango.</div> : null}
+
+                    <div style={{ display: 'grid', gap: 12 }}>
+                      <div>
+                        <div className="row" style={{ justifyContent: 'space-between' }}>
+                          <div style={{ fontWeight: 900 }}>Por mesero (quien abrió)</div>
+                          <div className="muted" style={{ fontSize: 12 }}>
+                            {(reportEffectiveDetails?.tabs ?? reportDetails[reportOpen].tabs).length} venta(s) · {reportByWaiter.length} persona(s)
+                          </div>
+                        </div>
+                        <div style={{ height: 8 }} />
+                        <div style={{ display: 'grid', gap: 6 }}>
+                          {reportByWaiter.map((w, idx) => {
+                            const staffKey = `created:${w.name}`
+                            const open = reportExpandedStaffKey === staffKey
+                            const rows = reportItemsByCreatedBy.get(w.name) ?? []
+                            return (
+                              <div key={staffKey} className="card" style={{ margin: 0, padding: 10, borderColor: open ? '#111827' : undefined }}>
+                                <button
+                                  type="button"
+                                  className="row"
+                                  style={{ justifyContent: 'space-between', width: '100%', textAlign: 'left', cursor: 'pointer', background: 'transparent', border: 'none', padding: 0 }}
+                                  onClick={() => setReportExpandedStaffKey((p) => (p === staffKey ? null : staffKey))}
+                                >
+                                  <div style={{ minWidth: 0 }}>
+                                    <div style={{ fontWeight: 950, fontSize: 13, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{w.name}</div>
+                                    <div className="muted" style={{ fontSize: 12 }}>{w.tabs} venta(s)</div>
+                                  </div>
+                                  <div style={{ textAlign: 'right' }}>
+                                    <div style={{ fontWeight: 950 }}>{money(w.total)}</div>
+                                    <div className="muted" style={{ fontSize: 12 }}>Propinas: {money(w.tips)}</div>
+                                  </div>
+                                </button>
+
+                                {open ? (
+                                  <>
+                                    <div style={{ height: 8 }} />
+                                    {!rows.length ? <div className="muted" style={{ fontSize: 12 }}>Sin productos (sin comandas en este rango).</div> : null}
+                                    <div style={{ display: 'grid', gap: 6 }}>
+                                      {rows.slice(0, 300).map((x, i) => (
+                                        <div
+                                          key={x.name}
+                                          className="row"
+                                          style={{
+                                            justifyContent: 'space-between',
+                                            padding: '6px 8px',
+                                            borderRadius: 10,
+                                            background: i % 2 === 0 ? 'rgba(17,24,39,0.03)' : 'transparent',
+                                          }}
+                                        >
+                                          <div style={{ fontWeight: 700, fontSize: 12 }}>{x.name}</div>
+                                          <div className="row" style={{ gap: 10, justifyContent: 'flex-end' }}>
+                                            <div className="muted" style={{ fontSize: 12 }}>x{x.qty}</div>
+                                            <div style={{ fontWeight: 900, fontSize: 12 }}>{x.amount ? money(Number(x.amount ?? 0)) : ''}</div>
+                                          </div>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </>
+                                ) : null}
+                              </div>
+                            )
+                          })}
+                        </div>
+                      </div>
+
+                      <div>
+                        <div className="row" style={{ justifyContent: 'space-between' }}>
+                          <div style={{ fontWeight: 900 }}>Por caja (quien cobró)</div>
+                          <div className="muted" style={{ fontSize: 12 }}>Basado en tabs pagados</div>
+                        </div>
+                        <div style={{ height: 8 }} />
+                        <div style={{ display: 'grid', gap: 6 }}>
+                          {reportByCashier.map((c, idx) => {
+                            const staffKey = `paid:${c.name}`
+                            const open = reportExpandedStaffKey === staffKey
+                            const rows = reportItemsByPaidBy.get(c.name) ?? []
+                            return (
+                              <div key={staffKey} className="card" style={{ margin: 0, padding: 10, borderColor: open ? '#111827' : undefined }}>
+                                <button
+                                  type="button"
+                                  className="row"
+                                  style={{ justifyContent: 'space-between', width: '100%', textAlign: 'left', cursor: 'pointer', background: 'transparent', border: 'none', padding: 0 }}
+                                  onClick={() => setReportExpandedStaffKey((p) => (p === staffKey ? null : staffKey))}
+                                >
+                                  <div style={{ minWidth: 0 }}>
+                                    <div style={{ fontWeight: 950, fontSize: 13, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{c.name}</div>
+                                    <div className="muted" style={{ fontSize: 12 }}>{c.tabs} cierre(s)</div>
+                                  </div>
+                                  <div style={{ textAlign: 'right' }}>
+                                    <div style={{ fontWeight: 950 }}>{money(c.total)}</div>
+                                    <div className="muted" style={{ fontSize: 12 }}>Propinas: {money(c.tips)}</div>
+                                  </div>
+                                </button>
+
+                                {open ? (
+                                  <>
+                                    <div style={{ height: 8 }} />
+                                    {!rows.length ? <div className="muted" style={{ fontSize: 12 }}>Sin productos.</div> : null}
+                                    <div style={{ display: 'grid', gap: 6 }}>
+                                      {rows.slice(0, 300).map((r, i) => (
+                                        <div
+                                          key={r.name}
+                                          className="row"
+                                          style={{
+                                            justifyContent: 'space-between',
+                                            padding: '6px 8px',
+                                            borderRadius: 10,
+                                            background: i % 2 === 0 ? 'rgba(17,24,39,0.03)' : 'transparent',
+                                          }}
+                                        >
+                                          <div style={{ fontWeight: 700, fontSize: 12 }}>{r.name}</div>
+                                          <div className="row" style={{ gap: 10, justifyContent: 'flex-end' }}>
+                                            <div className="muted" style={{ fontSize: 12 }}>x{r.qty}</div>
+                                            <div style={{ fontWeight: 900, fontSize: 12 }}>{r.amount ? money(Number(r.amount ?? 0)) : ''}</div>
+                                          </div>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </>
+                                ) : null}
+                              </div>
+                            )
+                          })}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </>
+              )}
             </div>
           ) : null}
 
           <div style={{ height: 12 }} />
-
-          <div className="card" style={{ margin: 0 }}>
-            <div className="row" style={{ justifyContent: 'space-between' }}>
-              <div style={{ fontWeight: 900 }}>Top 3 productos (hoy)</div>
-              <div className="muted" style={{ fontSize: 12 }}>Basado en comandas (`orders`).</div>
-            </div>
-            <div style={{ height: 10 }} />
-            {reportDetails.day.topItems.length === 0 ? <div className="muted">Sin datos de productos hoy.</div> : null}
-            <div style={{ display: 'grid', gap: 8 }}>
-              {reportDetails.day.topItems.map((x) => (
-                <div key={x.name} className="row" style={{ justifyContent: 'space-between' }}>
-                  <div>{x.name}</div>
-                  <div style={{ fontWeight: 900 }}>x{x.qty}</div>
-                </div>
-              ))}
-            </div>
-          </div>
         </div>
       ) : null}
 
