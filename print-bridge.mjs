@@ -357,8 +357,21 @@ async function ticketText(order, { db }) {
     const qtyStr = qty ? `x${qty}` : ''
     const catRaw = String(it?.categoryName ?? '').trim()
     const cat = catRaw ? catRaw.split(/[\/|,·\-]/)[0].trim() : ''
-    const prefix = cat ? `[${cat}] ` : ''
-    lines.push(`${padRight(qtyStr, 4)} ${prefix}${name}`.slice(0, 32))
+    const catNorm = cat.toLowerCase()
+    const catShort =
+      !cat
+        ? ''
+        : catNorm.includes('sodas') ||
+            catNorm.includes('bebid') ||
+            catNorm.includes('bar') ||
+            catNorm.includes('coctel') ||
+            catNorm.includes('vino') ||
+            catNorm.includes('cerve')
+          ? 'Bebidas'
+          : cat
+    const catLabel = catShort ? `[${String(catShort).slice(0, 10)}]` : ''
+    const suffix = catLabel ? ` ${catLabel}` : ''
+    lines.push(`${padRight(qtyStr, 4)} ${name}${suffix}`.slice(0, 32))
     const size = it?.size ? String(it.size) : ''
     const half = it?.halfName ? String(it.halfName) : ''
     const note = String(it?.note ?? '').trim()
