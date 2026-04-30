@@ -287,71 +287,6 @@ export default function AdminPage() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
 
-  const OPS_DEMO_KEY = 'opsDemo.v1'
-  type OpsDemoState = {
-    status: 'off' | 'on' | 'paused'
-    startedAtMs: number | null
-    lastTickMs: number | null
-    operativeMs: number
-    pauseMs: number
-  }
-
-  const [opsDemo, setOpsDemo] = React.useState<OpsDemoState>(() => {
-    try {
-      const raw = window.localStorage.getItem(OPS_DEMO_KEY)
-      if (!raw) return { status: 'off', startedAtMs: null, lastTickMs: null, operativeMs: 0, pauseMs: 0 }
-      const parsed = JSON.parse(raw) as Partial<OpsDemoState>
-      return {
-        status: parsed.status === 'on' || parsed.status === 'paused' || parsed.status === 'off' ? parsed.status : 'off',
-        startedAtMs: typeof parsed.startedAtMs === 'number' ? parsed.startedAtMs : null,
-        lastTickMs: typeof parsed.lastTickMs === 'number' ? parsed.lastTickMs : null,
-        operativeMs: typeof parsed.operativeMs === 'number' ? parsed.operativeMs : 0,
-        pauseMs: typeof parsed.pauseMs === 'number' ? parsed.pauseMs : 0,
-      }
-    } catch {
-      return { status: 'off', startedAtMs: null, lastTickMs: null, operativeMs: 0, pauseMs: 0 }
-    }
-  })
-
-  React.useEffect(() => {
-    try {
-      window.localStorage.setItem(OPS_DEMO_KEY, JSON.stringify(opsDemo))
-    } catch {
-      // ignore
-    }
-  }, [opsDemo])
-
-  const [opsNow, setOpsNow] = React.useState(() => Date.now())
-  React.useEffect(() => {
-    const t = window.setInterval(() => setOpsNow(Date.now()), 1000)
-    return () => window.clearInterval(t)
-  }, [])
-
-  React.useEffect(() => {
-    if (opsDemo.status === 'off') return
-    setOpsDemo((prev) => {
-      const nowMs = Date.now()
-      const last = prev.lastTickMs ?? nowMs
-      const delta = Math.max(0, nowMs - last)
-      if (prev.status === 'on') {
-        return { ...prev, lastTickMs: nowMs, operativeMs: prev.operativeMs + delta }
-      }
-      if (prev.status === 'paused') {
-        return { ...prev, lastTickMs: nowMs, pauseMs: prev.pauseMs + delta }
-      }
-      return prev
-    })
-  }, [opsNow])
-
-  const fmtHms = (ms: number) => {
-    const total = Math.max(0, Math.floor(ms / 1000))
-    const h = Math.floor(total / 3600)
-    const m = Math.floor((total % 3600) / 60)
-    const s = total % 60
-    const pad = (n: number) => String(n).padStart(2, '0')
-    return `${pad(h)}:${pad(m)}:${pad(s)}`
-  }
-
   React.useEffect(() => {
     const title = 'Patanegra · Admin'
     const desc = 'Panel administrativo (solo personal autorizado).'
@@ -1433,112 +1368,14 @@ export default function AdminPage() {
                 {opStartMs ? <strong style={{ color: '#111827' }}>{new Date(opStartMs).toLocaleString('es-MX')}</strong> : 'No iniciado'}
               </div>
             </div>
-
-            <button
-              className="button secondary"
-              onClick={async () => {
-                await setDoc(doc(db, 'ops', 'current'), { startAt: serverTimestamp() }, { merge: true })
-              }}
-            >
-              Iniciar operación
-            </button>
           </div>
 
           <div style={{ height: 12 }} />
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
-            <div
-              className="card"
-              style={{
-                margin: 0,
-                cursor: 'pointer',
-                border: '1px solid rgba(0,0,0,0.08)',
-                background:
-                  opsDemo.status === 'on'
-                    ? 'linear-gradient(135deg, rgba(16,185,129,0.18), rgba(16,185,129,0.08))'
-                    : opsDemo.status === 'paused'
-                      ? 'linear-gradient(135deg, rgba(245,158,11,0.20), rgba(245,158,11,0.08))'
-                      : 'linear-gradient(135deg, rgba(239,68,68,0.18), rgba(239,68,68,0.08))',
-              }}
-              onClick={() => {
-                setOpsDemo((prev) => {
-                  const nowMs = Date.now()
-                  if (prev.status === 'off') {
-                    return {
-                      status: 'on',
-                      startedAtMs: nowMs,
-                      lastTickMs: nowMs,
-                      operativeMs: prev.operativeMs,
-                      pauseMs: prev.pauseMs,
-                    }
-                  }
-                  if (prev.status === 'on') return { ...prev, status: 'paused', lastTickMs: nowMs }
-                  return { ...prev, status: 'on', lastTickMs: nowMs }
-                })
-              }}
-              role="button"
-              tabIndex={0}
-              onKeyDown={(e) => {
-                if (e.key !== 'Enter' && e.key !== ' ') return
-                e.preventDefault()
-                ;(e.currentTarget as any).click?.()
-              }}
-            >
-              <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8 }}>
-                <div>
-                  <div className="muted" style={{ fontSize: 12 }}>Operación</div>
-                  <div style={{ fontWeight: 950, fontSize: 22, color: '#111827' }}>
-                    {opsDemo.status === 'on' ? 'ON' : opsDemo.status === 'paused' ? 'PAUSA' : 'OFF'}
-                  </div>
-                  <div className="muted" style={{ fontSize: 11, marginTop: 2 }}>
-                    Inició:{' '}
-                    {opsDemo.startedAtMs ? (
-                      <strong style={{ color: '#111827' }}>{new Date(opsDemo.startedAtMs).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })}</strong>
-                    ) : (
-                      '—'
-                    )}
-                  </div>
-                </div>
-
-                <div className="row" style={{ gap: 8 }}>
-                  <button
-                    className="button secondary"
-                    style={{ padding: '6px 10px' }}
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      setOpsDemo((prev) => {
-                        if (prev.status === 'off') {
-                          const nowMs = Date.now()
-                          return { ...prev, status: 'on', startedAtMs: nowMs, lastTickMs: nowMs }
-                        }
-                        if (prev.status === 'on') return { ...prev, status: 'paused', lastTickMs: Date.now() }
-                        return { ...prev, status: 'on', lastTickMs: Date.now() }
-                      })
-                    }}
-                  >
-                    {opsDemo.status === 'off' ? 'Encender' : opsDemo.status === 'on' ? 'Pausar' : 'Reanudar'}
-                  </button>
-                  <button
-                    className="button secondary"
-                    style={{ padding: '6px 10px' }}
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      setOpsDemo((prev) => ({ ...prev, status: 'off', lastTickMs: null }))
-                    }}
-                  >
-                    Apagar
-                  </button>
-                </div>
-              </div>
-
-              <div style={{ height: 10 }} />
-              <div className="muted" style={{ fontSize: 12 }}>Operativo: {fmtHms(opsDemo.operativeMs)}</div>
-              <div className="muted" style={{ fontSize: 12 }}>Pausa: {fmtHms(opsDemo.pauseMs)}</div>
-              <div className="muted" style={{ fontSize: 11, marginTop: 6 }}>Toca la tarjeta para pausar/reanudar.</div>
-            </div>
             <div className="card" style={{ margin: 0 }}>
               <div className="muted" style={{ fontSize: 12 }}>Cuentas abiertas</div>
-              <div style={{ fontWeight: 950, fontSize: 22 }}>{openTabs.length}</div>
+              <div style={{ fontWeight: 950, fontSize: 24 }}>{tabs.filter((t) => String(t?.status ?? '') === 'open').length}</div>
             </div>
             <div className="card" style={{ margin: 0 }}>
               <div className="muted" style={{ fontSize: 12 }}>Órdenes pendientes (Cocina)</div>
@@ -1551,6 +1388,89 @@ export default function AdminPage() {
             {user?.role === 'admin' || user?.role === 'piso' ? (
               <div className="card" style={{ margin: 0 }}>
                 <div className="muted" style={{ fontSize: 12 }}>Pendientes</div>
+                <button
+                  className="button secondary"
+                  onClick={async () => {
+                    const ok = window.confirm('Esto mandará 2 tickets de prueba (Cocina y Barra). ¿Continuar?')
+                    if (!ok) return
+
+                    const testId = `togo-test-${String(Date.now()).slice(-6)}`
+                    const byName = user?.displayName ?? user?.email ?? null
+                    const byUid = user?.uid ?? null
+
+                    const kitchenOrderRef = doc(collection(db, 'orders'))
+                    const barOrderRef = doc(collection(db, 'orders'))
+
+                    const kitchenPayload = {
+                      status: 'pending',
+                      area: 'kitchen',
+                      tableId: testId,
+                      tableLabel: `PRUEBA ${testId}`,
+                      tabId: null,
+                      createdAt: serverTimestamp(),
+                      createdByUid: byUid,
+                      createdByName: byName,
+                      printedAt: null,
+                      items: [
+                        {
+                          itemId: 'test-pizza',
+                          name: 'Pepperoni',
+                          qty: 1,
+                          unitPrice: 0,
+                          lineTotal: 0,
+                          size: 'cm30',
+                          categoryName: 'Pizzas',
+                          extras: [{ name: 'Queso de cabra', qty: 1 }],
+                          note: 'PRUEBA',
+                        },
+                      ],
+                    }
+
+                    const barPayload = {
+                      status: 'pending',
+                      area: 'bar',
+                      tableId: testId,
+                      tableLabel: `PRUEBA ${testId}`,
+                      tabId: null,
+                      createdAt: serverTimestamp(),
+                      createdByUid: byUid,
+                      createdByName: byName,
+                      printedAt: null,
+                      items: [
+                        {
+                          itemId: 'test-bebida',
+                          name: 'Sangría',
+                          qty: 1,
+                          unitPrice: 0,
+                          lineTotal: 0,
+                          categoryName: 'Bebidas',
+                          extras: [],
+                          note: 'PRUEBA',
+                        },
+                        {
+                          itemId: 'test-bebida-2',
+                          name: 'Tinto de Verano',
+                          qty: 1,
+                          unitPrice: 0,
+                          lineTotal: 0,
+                          categoryName: 'Bebidas',
+                          extras: [],
+                          note: 'PRUEBA',
+                        },
+                      ],
+                    }
+
+                    const batch = writeBatch(db)
+                    batch.set(kitchenOrderRef, kitchenPayload as any)
+                    batch.set(barOrderRef, barPayload as any)
+                    await batch.commit()
+                  }}
+                >
+                  Impresión de prueba
+                </button>
+
+                <div style={{ height: 8 }} />
+
                 <button
                   className="button secondary"
                   disabled={pendingKitchen + pendingBar === 0}

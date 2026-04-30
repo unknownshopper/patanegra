@@ -16,6 +16,7 @@ import {
   query,
   runTransaction,
   serverTimestamp,
+  setDoc,
   updateDoc,
   where,
 } from 'firebase/firestore'
@@ -558,6 +559,48 @@ async function main() {
   await signInWithEmailAndPassword(auth, email, password)
   console.log('[print-bridge] Auth OK:', auth.currentUser?.uid)
 
+  const heartbeatRef = doc(db, 'ops', `bridge_${String(deviceName || 'device').replaceAll(/[^a-zA-Z0-9_-]/g, '_')}`)
+  const counters = {
+    ordersPrinted: 0,
+    ordersFailed: 0,
+    receiptsPrinted: 0,
+    receiptsFailed: 0,
+    billsPrinted: 0,
+    billsFailed: 0,
+  }
+  const heartbeatEveryMsRaw = env('HEARTBEAT_EVERY_MS', '30000')
+  const heartbeatEveryMsN = Number(heartbeatEveryMsRaw)
+  const heartbeatEveryMs = Number.isFinite(heartbeatEveryMsN) ? Math.max(10_000, Math.trunc(heartbeatEveryMsN)) : 30_000
+
+  const sendHeartbeat = async (extra = {}) => {
+    try {
+      await setDoc(
+        heartbeatRef,
+        {
+          deviceName,
+          status: 'online',
+          pid: process.pid,
+          printers: outPrinters,
+          dryRun,
+          lastSeenAt: serverTimestamp(),
+          lastSeenMs: Date.now(),
+          authUid: auth.currentUser?.uid ?? null,
+          ...counters,
+          ...extra,
+        },
+        { merge: true },
+      )
+    } catch (e) {
+      console.log('[print-bridge] Heartbeat error:', String((e && e.message) || e || 'heartbeat error'))
+    }
+  }
+
+  await sendHeartbeat({ startedAt: serverTimestamp() })
+  const heartbeatTimer = setInterval(() => {
+    console.log(`[print-bridge] heartbeat device=${deviceName} pid=${process.pid}`)
+    void sendHeartbeat()
+  }, heartbeatEveryMs)
+
   const inFlightOrders = new Set()
   const inFlightReceipts = new Set()
   const inFlightBills = new Set()
@@ -632,11 +675,14 @@ async function main() {
             })
           }
 
+          counters.ordersPrinted += 1
+
           recentlyPrintedOrders.set(id, Date.now())
 
           console.log(`[print-bridge] Order printed ${id} -> ${printer}`)
         } catch (e) {
           console.error('[print-bridge] Error printing order', o?.id, e)
+          counters.ordersFailed += 1
           recentlyFailedOrders.set(id, Date.now())
           if (!dryRun) {
             try {
@@ -715,14 +761,17 @@ async function main() {
               })
             }
 
+            counters.receiptsPrinted += 1
+
             console.log(`[print-bridge] Receipt printed ${id} -> ${printer}`)
           } catch (e) {
             console.error('[print-bridge] Error printing receipt', t?.id, e)
+            counters.receiptsFailed += 1
             if (!dryRun) {
               try {
                 await updateDoc(doc(db, 'tabs', String(t?.id ?? '')), {
                   receiptPrintErrorAt: serverTimestamp(),
-                  receiptPrintErrorMsg: String((e && e.message) || e || 'receipt print error'),
+                  receiptPrintErrorMsg: String((e && e.message) || e || 'print error'),
                   receiptPrintErrorDevice: deviceName,
                 })
               } catch {
@@ -792,21 +841,24 @@ async function main() {
             })
             tabFolioCache.set(id, folio)
           }
+          counters.billsPrinted += 1
           recentlyPrintedBills.set(id, Date.now())
           console.log(`[print-bridge] Bill printed ${id} -> ${printer} folio=${folio}`)
         } catch (e) {
           console.error('[print-bridge] Error printing bill', t?.id, e)
+          counters.billsFailed += 1
           if (!dryRun) {
             try {
               await updateDoc(doc(db, 'tabs', String(t?.id ?? '')), {
                 billPrintErrorAt: serverTimestamp(),
-                billPrintErrorMsg: String((e && e.message) || e || 'bill print error'),
+                billPrintErrorMsg: String((e && e.message) || e || 'print error'),
                 billPrintErrorDevice: deviceName,
               })
             } catch {
               // ignore
             }
           }
+        } finally {
           inFlightBills.delete(id)
         }
       }
@@ -828,6 +880,14 @@ async function main() {
     } catch {
       // ignore
     }
+
+    try {
+      clearInterval(heartbeatTimer)
+    } catch {
+      // ignore
+    }
+
+    void sendHeartbeat({ status: 'offline', stoppedAt: serverTimestamp() })
     process.exit(0)
   }
 

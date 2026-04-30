@@ -1,6 +1,6 @@
 import React from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
-import { collection, onSnapshot, orderBy, query, serverTimestamp, updateDoc, doc } from 'firebase/firestore'
+import { collection, onSnapshot, orderBy, query, serverTimestamp, updateDoc, doc, writeBatch } from 'firebase/firestore'
 import { db } from '../firebase'
 import { useAuth } from '../auth/AuthProvider'
 import SessionBar from '../components/SessionBar'
@@ -397,7 +397,92 @@ export default function MeseroPage() {
         <div className="card">
           <div className="row" style={{ justifyContent: 'space-between' }}>
             <strong>Pendientes</strong>
-            <div className="muted" style={{ fontSize: 12 }}>Solo tus órdenes pendientes</div>
+            <div className="row" style={{ gap: 10 }}>
+              <button
+                className="button secondary"
+                onClick={async () => {
+                  const ok = window.confirm('Esto mandará 2 tickets de prueba (Cocina y Barra). ¿Continuar?')
+                  if (!ok) return
+
+                  const testId = `togo-test-${String(Date.now()).slice(-6)}`
+                  const byName = user?.displayName ?? user?.email ?? null
+                  const byUid = user?.uid ?? null
+                  const byStaff = String((user as any)?.staffId ?? '').trim() || null
+
+                  const kitchenOrderRef = doc(collection(db, 'orders'))
+                  const barOrderRef = doc(collection(db, 'orders'))
+
+                  const kitchenPayload = {
+                    status: 'pending',
+                    area: 'kitchen',
+                    tableId: testId,
+                    tableLabel: `PRUEBA ${testId}`,
+                    tabId: null,
+                    createdAt: serverTimestamp(),
+                    createdByUid: byUid,
+                    createdByName: byName,
+                    createdByStaffId: byStaff,
+                    printedAt: null,
+                    items: [
+                      {
+                        itemId: 'test-pizza',
+                        name: 'Pepperoni',
+                        qty: 1,
+                        unitPrice: 0,
+                        lineTotal: 0,
+                        size: 'cm30',
+                        categoryName: 'Pizzas',
+                        extras: [{ name: 'Queso de cabra', qty: 1 }],
+                        note: 'PRUEBA',
+                      },
+                    ],
+                  }
+
+                  const barPayload = {
+                    status: 'pending',
+                    area: 'bar',
+                    tableId: testId,
+                    tableLabel: `PRUEBA ${testId}`,
+                    tabId: null,
+                    createdAt: serverTimestamp(),
+                    createdByUid: byUid,
+                    createdByName: byName,
+                    createdByStaffId: byStaff,
+                    printedAt: null,
+                    items: [
+                      {
+                        itemId: 'test-bebida',
+                        name: 'Sangría',
+                        qty: 1,
+                        unitPrice: 0,
+                        lineTotal: 0,
+                        categoryName: 'Bebidas',
+                        extras: [],
+                        note: 'PRUEBA',
+                      },
+                      {
+                        itemId: 'test-bebida-2',
+                        name: 'Tinto de Verano',
+                        qty: 1,
+                        unitPrice: 0,
+                        lineTotal: 0,
+                        categoryName: 'Bebidas',
+                        extras: [],
+                        note: 'PRUEBA',
+                      },
+                    ],
+                  }
+
+                  const batch = writeBatch(db)
+                  batch.set(kitchenOrderRef, kitchenPayload as any)
+                  batch.set(barOrderRef, barPayload as any)
+                  await batch.commit()
+                }}
+              >
+                Impresión de prueba
+              </button>
+              <div className="muted" style={{ fontSize: 12, whiteSpace: 'nowrap' }}>Solo tus órdenes pendientes</div>
+            </div>
           </div>
 
           <div style={{ height: 12 }} />
