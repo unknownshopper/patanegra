@@ -607,6 +607,19 @@ async function main() {
   const recentlyPrintedOrders = new Map()
   const recentlyPrintedBills = new Map()
   const recentlyFailedOrders = new Map()
+  const recentlyFailedBills = new Map()
+
+  const isResourceExhausted = (e) => {
+    const code = String(e?.code ?? '').toLowerCase()
+    const msg = String(e?.message ?? '').toLowerCase()
+    return code.includes('resource-exhausted') || msg.includes('resource_exhausted') || msg.includes('quota exceeded')
+  }
+
+  let pauseUntilMs = 0
+  const pauseForMs = (ms) => {
+    const next = Date.now() + ms
+    pauseUntilMs = Math.max(pauseUntilMs, next)
+  }
   let unsubOrders = null
   let unsubReceipts = null
   let unsubBills = null
@@ -649,6 +662,7 @@ async function main() {
       )
 
       for (const o of docs) {
+        if (Date.now() < pauseUntilMs) continue
         const id = String(o?.id ?? '')
         if (!id) continue
         if (o?.printedAt?.toMillis || o?.printedAt != null) continue
@@ -684,8 +698,12 @@ async function main() {
           console.error('[print-bridge] Error printing order', o?.id, e)
           counters.ordersFailed += 1
           recentlyFailedOrders.set(id, Date.now())
+          if (isResourceExhausted(e)) {
+            pauseForMs(60 * 1000)
+          }
           if (!dryRun) {
             try {
+              if (isResourceExhausted(e)) throw new Error('skip-quota-write')
               await updateDoc(doc(db, 'orders', String(o?.id ?? '')), {
                 printErrorAt: serverTimestamp(),
                 printErrorMsg: String((e && e.message) || e || 'print error'),
@@ -812,6 +830,7 @@ async function main() {
       const docs = Array.from(byId.values())
 
       for (const t of docs) {
+        if (Date.now() < pauseUntilMs) continue
         const id = String(t?.id ?? '')
         if (!id) continue
         if (!t?.billRequestedAt?.toMillis && t?.billRequestedAt == null) continue
@@ -820,6 +839,8 @@ async function main() {
         if (reqMs != null && printedMs != null && reqMs <= printedMs) continue
         const lastPrinted = recentlyPrintedBills.get(id)
         if (typeof lastPrinted === 'number' && Date.now() - lastPrinted < 20 * 1000) continue
+        const lastLocalErr = recentlyFailedBills.get(id)
+        if (typeof lastLocalErr === 'number' && Date.now() - lastLocalErr < 60 * 1000) continue
         if (inFlightBills.has(id)) continue
 
         inFlightBills.add(id)
@@ -847,8 +868,13 @@ async function main() {
         } catch (e) {
           console.error('[print-bridge] Error printing bill', t?.id, e)
           counters.billsFailed += 1
+          recentlyFailedBills.set(id, Date.now())
+          if (isResourceExhausted(e)) {
+            pauseForMs(60 * 1000)
+          }
           if (!dryRun) {
             try {
+              if (isResourceExhausted(e)) throw new Error('skip-quota-write')
               await updateDoc(doc(db, 'tabs', String(t?.id ?? '')), {
                 billPrintErrorAt: serverTimestamp(),
                 billPrintErrorMsg: String((e && e.message) || e || 'print error'),
