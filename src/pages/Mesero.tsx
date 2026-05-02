@@ -111,11 +111,17 @@ export default function MeseroPage() {
   }, [])
 
   React.useEffect(() => {
-    const q = query(collection(db, 'tabs'), where('status', '==', 'open'), orderBy('openedAt', 'desc'))
+    const q = query(collection(db, 'tabs'), where('status', '==', 'open'))
     return onSnapshot(
       q,
       (snap) => {
-        const data = snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) }))
+        const data = snap.docs
+          .map((d) => ({ id: d.id, ...(d.data() as any) }))
+          .sort((a: any, b: any) => {
+            const ams = a?.openedAt?.toMillis ? a.openedAt.toMillis() : Number(a?.openedAt ?? 0)
+            const bms = b?.openedAt?.toMillis ? b.openedAt.toMillis() : Number(b?.openedAt ?? 0)
+            return bms - ams
+          })
         setTabs(data)
       },
       () => {

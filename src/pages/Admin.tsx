@@ -404,7 +404,7 @@ export default function AdminPage() {
   }, [reportLoadedAtMs, reportOpen, view])
 
   React.useEffect(() => {
-    const q = query(collection(db, 'tabs'), where('status', '==', 'open'), orderBy('openedAt', 'desc'))
+    const q = query(collection(db, 'tabs'), where('status', '==', 'open'))
     return onSnapshot(
       q,
       (snap) => {
