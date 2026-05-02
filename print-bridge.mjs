@@ -615,6 +615,32 @@ async function main() {
     return code.includes('resource-exhausted') || msg.includes('resource_exhausted') || msg.includes('quota exceeded')
   }
 
+  const isUnavailable = (e) => {
+    const code = String(e?.code ?? '').toLowerCase()
+    const msg = String(e?.message ?? '').toLowerCase()
+    return code.includes('unavailable') || msg.includes('unavailable') || msg.includes('econnreset') || msg.includes('socket hang up')
+  }
+
+  let unavailableCount = 0
+  let unavailableWindowStartMs = 0
+  const noteUnavailable = (e, where) => {
+    if (!isUnavailable(e)) return
+    const now = Date.now()
+    const windowMs = 2 * 60 * 1000
+    if (!unavailableWindowStartMs || now - unavailableWindowStartMs > windowMs) {
+      unavailableWindowStartMs = now
+      unavailableCount = 0
+    }
+    unavailableCount += 1
+    console.error(`[print-bridge] Firestore UNAVAILABLE (${where}) count=${unavailableCount}`)
+    // If we keep getting UNAVAILABLE/ECONNRESET errors, force a restart so PM2 can recover.
+    if (unavailableCount >= 10) {
+      console.error('[print-bridge] Too many Firestore UNAVAILABLE errors; exiting for PM2 restart')
+      // Give logs a moment to flush
+      setTimeout(() => process.exit(1), 250)
+    }
+  }
+
   let pauseUntilMs = 0
   const pauseForMs = (ms) => {
     const next = Date.now() + ms
@@ -720,6 +746,7 @@ async function main() {
     },
     (err) => {
       console.error('[print-bridge] Snapshot error', err)
+      noteUnavailable(err, 'orders')
     },
   )
 
@@ -803,6 +830,7 @@ async function main() {
       },
       (err) => {
         console.error('[print-bridge] Snapshot error (receipts)', err)
+        noteUnavailable(err, 'receipts')
       },
     )
   } else {
@@ -894,6 +922,7 @@ async function main() {
     },
     (err) => {
       console.error('[print-bridge] Bills snapshot error', err)
+      noteUnavailable(err, 'bills')
     },
   )
 
