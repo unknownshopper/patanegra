@@ -9,6 +9,7 @@ import {
   query,
   runTransaction,
   serverTimestamp,
+  Timestamp,
   updateDoc,
   doc,
   where,
@@ -225,6 +226,10 @@ export default function CajaPage() {
   const [expandedSaleId, setExpandedSaleId] = React.useState<string | null>(null)
   const [expandedTabId, setExpandedTabId] = React.useState<string | null>(null)
 
+  const [reportTabs, setReportTabs] = React.useState<Tab[]>([])
+  const [reportOrders, setReportOrders] = React.useState<any[]>([])
+  const [reportLoadedAtMs, setReportLoadedAtMs] = React.useState<number | null>(null)
+
   const initialView = ((): 'dashboard' | 'report' => {
     const v = String(searchParams.get('v') ?? '').toLowerCase()
     if (v === 'report' || v === 'reporte') return 'report'
@@ -244,7 +249,41 @@ export default function CajaPage() {
   }, [searchParams])
 
   React.useEffect(() => {
-    const q = query(collection(db, 'tabs'), orderBy('openedAt', 'desc'))
+    if (view !== 'report') return
+    const nowMs = Date.now()
+    if (reportLoadedAtMs != null && nowMs - reportLoadedAtMs < 60_000) return
+
+    let alive = true
+    ;(async () => {
+      try {
+        const sinceMs = nowMs - 60 * 24 * 60 * 60 * 1000
+        const sinceTs = Timestamp.fromMillis(sinceMs)
+
+        const [tabsSnap, ordersSnap] = await Promise.all([
+          getDocs(query(collection(db, 'tabs'), where('openedAt', '>=', sinceTs), orderBy('openedAt', 'desc'))),
+          getDocs(query(collection(db, 'orders'), where('createdAt', '>=', sinceTs), orderBy('createdAt', 'desc'))),
+        ])
+
+        if (!alive) return
+        const tabsData = tabsSnap.docs.map((d) => ({ id: d.id, ...(d.data() as any) })) as Tab[]
+        setReportTabs(tabsData)
+        setReportOrders(ordersSnap.docs.map((d) => ({ id: d.id, ...(d.data() as any) })))
+        setReportLoadedAtMs(nowMs)
+      } catch {
+        if (!alive) return
+        setReportTabs([])
+        setReportOrders([])
+        setReportLoadedAtMs(nowMs)
+      }
+    })()
+
+    return () => {
+      alive = false
+    }
+  }, [reportLoadedAtMs, view])
+
+  React.useEffect(() => {
+    const q = query(collection(db, 'tabs'), where('status', '==', 'open'), orderBy('openedAt', 'desc'))
     return onSnapshot(
       q,
       (snap) => {
@@ -258,7 +297,9 @@ export default function CajaPage() {
   }, [])
 
   React.useEffect(() => {
-    const q = query(collection(db, 'orders'), orderBy('createdAt', 'desc'))
+    const sinceMs = Date.now() - 48 * 60 * 60 * 1000
+    const sinceTs = Timestamp.fromMillis(sinceMs)
+    const q = query(collection(db, 'orders'), where('createdAt', '>=', sinceTs), orderBy('createdAt', 'desc'))
     return onSnapshot(
       q,
       (snap) => {
@@ -280,7 +321,7 @@ export default function CajaPage() {
   }
   const openTabs = openTabsAll.filter((t) => !isInternalTab(t))
   const internalOpenTabs = openTabsAll.filter((t) => isInternalTab(t))
-  const paidOrLegacyTabs = tabs.filter((t) => t.status === 'closed' && !(t as any)?.isVoided)
+  const paidOrLegacyTabs = reportTabs.filter((t) => t.status === 'closed' && !(t as any)?.isVoided)
   const pendingKitchen = orders.filter((o) => o.status === 'pending' && o.area === 'kitchen').length
   const pendingBar = orders.filter((o) => o.status === 'pending' && o.area === 'bar').length
   const report = React.useMemo(() => {
@@ -377,7 +418,7 @@ export default function CajaPage() {
     compute('week', report.weekStart, report.weekEnd)
     compute('month', report.monthStart, report.monthEnd)
     return byKey
-  }, [paidOrLegacyTabs, report, orders])
+  }, [paidOrLegacyTabs, report, reportOrders])
 
   const reportDayDrilldown = React.useMemo(() => {
     const dayMs = 24 * 60 * 60 * 1000
@@ -424,6 +465,7 @@ export default function CajaPage() {
 
   const tabOrdersBreakdown = React.useCallback(
     (t: Tab) => {
+      const sourceOrders = view === 'report' ? reportOrders : orders
       const tableId = (t as any).tableId
       const openedAtMs = (t as any)?.openedAt?.toMillis ? (t as any).openedAt.toMillis() : null
       const paidAtMs = (t as any)?.paidAt?.toMillis ? (t as any).paidAt.toMillis() : null
@@ -442,7 +484,7 @@ export default function CajaPage() {
       const foodAmt = new Map<string, number>()
       const drinksAmt = new Map<string, number>()
 
-      for (const o of orders) {
+      for (const o of sourceOrders) {
         if (!o || o.tableId !== tableId) continue
         const ms = o?.createdAt?.toMillis ? o.createdAt.toMillis() : null
         if (!within(ms)) continue
@@ -479,7 +521,7 @@ export default function CajaPage() {
         drinksTotal: Math.round(drinksTotal * 100) / 100,
       }
     },
-    [orders],
+    [orders, reportOrders, view],
   )
 
   const removeOrderItem = React.useCallback(

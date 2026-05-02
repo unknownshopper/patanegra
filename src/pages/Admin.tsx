@@ -7,9 +7,11 @@ import {
   collection,
   deleteDoc,
   doc,
+  getDocs,
   limit,
   runTransaction,
   serverTimestamp,
+  Timestamp,
   onSnapshot,
   orderBy,
   query,
@@ -342,6 +344,10 @@ export default function AdminPage() {
   const [reportSubView, setReportSubView] = React.useState<'summary' | 'top' | 'waiters'>('summary')
   const [reportExpandedStaffKey, setReportExpandedStaffKey] = React.useState<string | null>(null)
 
+  const [reportTabs, setReportTabs] = React.useState<any[]>([])
+  const [reportOrders, setReportOrders] = React.useState<any[]>([])
+  const [reportLoadedAtMs, setReportLoadedAtMs] = React.useState<number | null>(null)
+
   React.useEffect(() => {
     const t = window.setInterval(() => setNow(Date.now()), 15_000)
     return () => window.clearInterval(t)
@@ -363,7 +369,42 @@ export default function AdminPage() {
   }, [])
 
   React.useEffect(() => {
-    const q = query(collection(db, 'tabs'), orderBy('openedAt', 'desc'))
+    const needsReportData = view === 'report' || Boolean(reportOpen)
+    if (!needsReportData) return
+
+    const nowMs = Date.now()
+    if (reportLoadedAtMs != null && nowMs - reportLoadedAtMs < 60_000) return
+
+    let alive = true
+    ;(async () => {
+      try {
+        const sinceMs = nowMs - 60 * 24 * 60 * 60 * 1000
+        const sinceTs = Timestamp.fromMillis(sinceMs)
+
+        const [tabsSnap, ordersSnap] = await Promise.all([
+          getDocs(query(collection(db, 'tabs'), where('openedAt', '>=', sinceTs), orderBy('openedAt', 'desc'))),
+          getDocs(query(collection(db, 'orders'), where('createdAt', '>=', sinceTs), orderBy('createdAt', 'desc'))),
+        ])
+
+        if (!alive) return
+        setReportTabs(tabsSnap.docs.map((d) => ({ id: d.id, ...(d.data() as any) })))
+        setReportOrders(ordersSnap.docs.map((d) => ({ id: d.id, ...(d.data() as any) })))
+        setReportLoadedAtMs(nowMs)
+      } catch {
+        if (!alive) return
+        setReportTabs([])
+        setReportOrders([])
+        setReportLoadedAtMs(nowMs)
+      }
+    })()
+
+    return () => {
+      alive = false
+    }
+  }, [reportLoadedAtMs, reportOpen, view])
+
+  React.useEffect(() => {
+    const q = query(collection(db, 'tabs'), where('status', '==', 'open'), orderBy('openedAt', 'desc'))
     return onSnapshot(
       q,
       (snap) => {
@@ -377,7 +418,7 @@ export default function AdminPage() {
   }, [])
 
   React.useEffect(() => {
-    const q = query(collection(db, 'orders'), orderBy('createdAt', 'desc'))
+    const q = query(collection(db, 'orders'), where('status', '==', 'pending'), orderBy('createdAt', 'desc'))
     return onSnapshot(
       q,
       (snap) => {
@@ -425,7 +466,7 @@ export default function AdminPage() {
   const selectedItems = selectedCategoryId ? items.filter((i) => i.categoryId === selectedCategoryId) : []
 
   const openTabs = tabs.filter((t) => t.status === 'open')
-  const paidOrLegacyTabs = tabs.filter((t) => t.status === 'closed' && !(t as any)?.isVoided)
+  const paidOrLegacyTabs = reportTabs.filter((t) => t.status === 'closed' && !(t as any)?.isVoided)
 
   const pendingKitchen = orders.filter((o) => o.status === 'pending' && o.area === 'kitchen').length
   const pendingBar = orders.filter((o) => o.status === 'pending' && o.area === 'bar').length
@@ -607,7 +648,7 @@ export default function AdminPage() {
       const qtyByName = new Map<string, number>()
       let doughCm30 = 0
       let doughCm20 = 0
-      const ordersInRange = orders.filter((o) => {
+      const ordersInRange = reportOrders.filter((o) => {
         const ms = o?.createdAt?.toMillis ? o.createdAt.toMillis() : null
         return ms != null && ms >= start && ms < end
       })
@@ -645,7 +686,7 @@ export default function AdminPage() {
     if (reportRanges.range) compute('range', reportRanges.range.start, reportRanges.range.end)
 
     return byKey
-  }, [paidOrLegacyTabs, orders, reportRanges])
+  }, [paidOrLegacyTabs, reportOrders, reportRanges])
 
   const reportDayOptions = React.useMemo(() => {
     const d = new Date(now)
@@ -725,7 +766,7 @@ export default function AdminPage() {
       const qtyByName = new Map<string, number>()
       let doughCm30 = 0
       let doughCm20 = 0
-      const ordersInRange = orders.filter((o) => {
+      const ordersInRange = reportOrders.filter((o) => {
         const ms = o?.createdAt?.toMillis ? o.createdAt.toMillis() : null
         return ms != null && ms >= start && ms < end
       })
@@ -756,7 +797,7 @@ export default function AdminPage() {
 
       return { tabs: tabsInRange, topItems, sum, byMethod, dough: { cm30: doughCm30, cm20: doughCm20 } }
     },
-    [orders, paidOrLegacyTabs],
+    [reportOrders, paidOrLegacyTabs],
   )
 
   const reportEffective = React.useMemo(() => {
@@ -797,7 +838,7 @@ export default function AdminPage() {
     const end = reportEffective.end
 
     const byTab = new Map<string, Map<string, { qty: number; amount: number }>>()
-    for (const o of orders) {
+    for (const o of reportOrders) {
       const ms = o?.createdAt?.toMillis ? o.createdAt.toMillis() : null
       if (ms == null || ms < start || ms >= end) continue
       const tabId = String(o?.tabId ?? '').trim()
@@ -825,7 +866,7 @@ export default function AdminPage() {
       out.set(tabId, rows)
     }
     return out
-  }, [orders, reportEffective])
+  }, [reportOrders, reportEffective])
 
   React.useEffect(() => {
     setReportExpandedTabId(null)
@@ -836,6 +877,9 @@ export default function AdminPage() {
   const reportTopByBucket = React.useMemo(() => {
     const start = reportEffective?.start
     const end = reportEffective?.end
+    if (start == null || end == null) {
+      return { pizzas: [], calzones: [], bebidas: [], jarras: [], otrosAlimentos: [] } as any
+    }
     const out = {
       pizzas: [] as Array<{ name: string; qty: number; amount: number }>,
       calzones: [] as Array<{ name: string; qty: number; amount: number }>,
@@ -843,8 +887,6 @@ export default function AdminPage() {
       jarras: [] as Array<{ name: string; qty: number; amount: number }>,
       otrosAlimentos: [] as Array<{ name: string; qty: number; amount: number }>,
     }
-    if (start == null || end == null) return out
-
     const categoryNameById = new Map<string, string>()
     for (const c of categories) categoryNameById.set(String(c.id), String((c as any)?.name ?? ''))
 
@@ -878,7 +920,7 @@ export default function AdminPage() {
 
     // Aggregate sold qty/amount by menu item id (fallback to name if missing)
     const soldByKey = new Map<string, { qty: number; amount: number }>()
-    for (const o of orders) {
+    for (const o of reportOrders) {
       const ms = o?.createdAt?.toMillis ? o.createdAt.toMillis() : null
       if (ms == null || ms < start || ms >= end) continue
       const its = Array.isArray(o?.items) ? o.items : []
@@ -948,7 +990,7 @@ export default function AdminPage() {
     out.jarras = toRows(m.jarras)
     out.otrosAlimentos = toRows(m.otrosAlimentos)
     return out
-  }, [orders, reportEffective?.end, reportEffective?.start])
+  }, [reportOrders, reportEffective?.end, reportEffective?.start])
 
   const reportByWaiter = React.useMemo(() => {
     if (!reportOpen) return [] as Array<{ name: string; tabs: number; total: number; tips: number }>
@@ -2266,7 +2308,7 @@ export default function AdminPage() {
                             <div style={{ height: 8 }} />
                             {!rows.length ? <div className="muted" style={{ fontSize: 12 }}>Sin ventas en este rango.</div> : null}
                             <div style={{ display: 'grid', gap: 6 }}>
-                              {rows.map((x, idx) => (
+                              {rows.map((x: any, idx: number) => (
                                 <div
                                   key={x.name}
                                   className="row"

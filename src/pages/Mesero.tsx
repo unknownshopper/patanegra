@@ -1,8 +1,19 @@
 import React from 'react'
+import {
+  collection,
+  doc,
+  onSnapshot,
+  orderBy,
+  query,
+  serverTimestamp,
+  writeBatch,
+  updateDoc,
+  where,
+  Timestamp,
+} from 'firebase/firestore'
 import { Link, useSearchParams } from 'react-router-dom'
-import { collection, onSnapshot, orderBy, query, serverTimestamp, updateDoc, doc, writeBatch } from 'firebase/firestore'
-import { db } from '../firebase'
 import { useAuth } from '../auth/AuthProvider'
+import { db } from '../firebase'
 import SessionBar from '../components/SessionBar'
 
 type WaiterCall = {
@@ -100,7 +111,7 @@ export default function MeseroPage() {
   }, [])
 
   React.useEffect(() => {
-    const q = query(collection(db, 'tabs'), orderBy('openedAt', 'desc'))
+    const q = query(collection(db, 'tabs'), where('status', '==', 'open'), orderBy('openedAt', 'desc'))
     return onSnapshot(
       q,
       (snap) => {
@@ -114,7 +125,14 @@ export default function MeseroPage() {
   }, [])
 
   React.useEffect(() => {
-    const q = query(collection(db, 'orders'), orderBy('createdAt', 'desc'))
+    const sinceMs = Date.now() - 48 * 60 * 60 * 1000
+    const sinceTs = Timestamp.fromMillis(sinceMs)
+    const q = query(
+      collection(db, 'orders'),
+      where('createdAt', '>=', sinceTs),
+      where('status', '==', 'pending'),
+      orderBy('createdAt', 'desc'),
+    )
     return onSnapshot(
       q,
       (snap) => {
