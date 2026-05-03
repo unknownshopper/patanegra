@@ -181,6 +181,30 @@ export default function MenuPublicoPage() {
   const viewCategories = showDemo ? demoCategories : categories
   const viewItems = showDemo ? demoItems : items
 
+  const publicHiddenItem = React.useCallback(
+    (it: any) => {
+      const norm = (s: any) => String(s ?? '').toLowerCase().normalize('NFD').replace(/\p{Diacritic}/gu, '')
+      const name = norm(it?.name)
+      if (!name) return false
+      if (name.includes('mezcal')) return true
+      if (name.includes('tinto de verano')) return true
+      if (name.includes('sangria en vaso') || name.includes('sangria vaso')) return true
+      return false
+    },
+    [],
+  )
+
+  const publicHiddenCategory = React.useCallback(
+    (catName: any) => {
+      const n = String(catName ?? '').toLowerCase().normalize('NFD').replace(/\p{Diacritic}/gu, '')
+      if (!n) return false
+      if (n.includes('jarra')) return true
+      if (n.includes('mezcal')) return true
+      return false
+    },
+    [],
+  )
+
   const menuLoading = !catsLoaded || !itemsLoaded
 
   useEffect(() => {
@@ -479,26 +503,35 @@ export default function MenuPublicoPage() {
 
   const filteredItems = React.useMemo(() => {
     const q = normalizeText(productQuery.trim())
-    return viewItems.filter((it) => {
+    const visibleItems = viewItems.filter((it) => {
       if (typeFilter !== 'all' && itemType(it) !== typeFilter) return false
       if (!q) return true
       const hay = normalizeText(`${it.name ?? ''} ${it.description ?? ''}`)
       return hay.includes(q)
     })
-  }, [itemType, normalizeText, productQuery, typeFilter, viewItems])
+    const categoryNameByIdLocal = new Map<string, string>()
+    for (const c of viewCategories) categoryNameByIdLocal.set(String((c as any)?.id ?? ''), String((c as any)?.name ?? ''))
+
+    return visibleItems.filter((it) => {
+      const catName = categoryNameByIdLocal.get(String((it as any)?.categoryId ?? '')) ?? ''
+      if (publicHiddenCategory(catName)) return false
+      if (publicHiddenItem(it)) return false
+      return true
+    })
+  }, [itemType, normalizeText, productQuery, publicHiddenCategory, publicHiddenItem, typeFilter, viewCategories, viewItems])
 
   const filteredCategories = React.useMemo(() => {
     const q = productQuery.trim()
-    if (!q && typeFilter === 'all') return viewCategories
+    if (!q && typeFilter === 'all') return viewCategories.filter((c) => !publicHiddenCategory((c as any)?.name))
     const idsWithItems = new Set(filteredItems.map((it) => it.categoryId))
-    return viewCategories.filter((c) => idsWithItems.has(c.id))
-  }, [filteredItems, productQuery, typeFilter, viewCategories])
+    return viewCategories.filter((c) => idsWithItems.has(c.id) && !publicHiddenCategory((c as any)?.name))
+  }, [filteredItems, productQuery, publicHiddenCategory, typeFilter, viewCategories])
 
   const navCategories = React.useMemo(() => {
     const q = productQuery.trim()
-    if (!q && typeFilter === 'all') return viewCategories
+    if (!q && typeFilter === 'all') return viewCategories.filter((c) => !publicHiddenCategory((c as any)?.name))
     return filteredCategories
-  }, [filteredCategories, productQuery, typeFilter, viewCategories])
+  }, [filteredCategories, productQuery, publicHiddenCategory, typeFilter, viewCategories])
 
   function isBarItem(it: Item) {
     return itemType(it) === 'bebidas'
@@ -752,8 +785,12 @@ export default function MenuPublicoPage() {
   }
 
   return (
-    <div className="container menuPublicoRoot" style={{ position: 'relative' }}>
-      <div className="menuPublicoBg" aria-hidden="true" />
+    <div className="container menuPublicoRoot" style={{ position: 'relative', paddingTop: 12 }}>
+      <div
+        className="menuPublicoBg"
+        aria-hidden="true"
+        style={{ backgroundImage: 'url(/backpat.png)', backgroundSize: 'cover', backgroundPosition: 'center', backgroundRepeat: 'no-repeat' }}
+      />
 
       {fatalErr ? (
         <div className="card" style={{ marginBottom: 12, padding: 12, borderColor: 'rgba(185, 28, 28, 0.35)' }}>
@@ -804,13 +841,14 @@ export default function MenuPublicoPage() {
       ) : null}
 
       {user ? (
-        <div className="card" style={{ marginBottom: 12, padding: 12 }}>
-          <div className="row" style={{ justifyContent: 'space-between' }}>
+        <div className="card" style={{ marginBottom: 10, padding: 12 }}>
+          <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
             <div className="muted" style={{ fontSize: 12 }}>
               Sesión activa:{' '}
-              <strong style={{ color: '#111827' }}>{(user.displayName ?? user.email ?? '—').toUpperCase()}</strong>
+              <strong style={{ color: 'inherit' }}>{(user.displayName ?? user.email ?? '—').toUpperCase()}</strong>
+              {tableLabel ? <span style={{ marginLeft: 10 }}>· Estás en <strong style={{ color: 'inherit' }}>{tableLabel}</strong></span> : null}
             </div>
-            <div className="row">
+            <div className="row" style={{ gap: 8 }}>
               {staffHomePath ? (
                 <Link className="button secondary" to={staffHomePath}>
                   Ir a panel
@@ -824,20 +862,7 @@ export default function MenuPublicoPage() {
         </div>
       ) : null}
 
-      <div className="row" style={{ justifyContent: 'space-between' }}>
-        <div>
-          <div
-            className="brandChip"
-            style={{ width: 'calc(100% + 48px)', marginLeft: -24, marginRight: -24, justifyContent: 'center' }}
-          >
-            <img className="brandLogo" src="/logo1.png" alt="Patanegra" />
-            <h1 className="h1" style={{ margin: 0 }}>Patanegra</h1>
-            <span className="welcomeInline">Benvenuti</span>
-          </div>
-          {tableLabel ? <div className="subtitleChip">Estás en {tableLabel}</div> : null}
-        </div>
-      </div>
-      <div style={{ height: 12 }} />
+      <div style={{ height: 140 }} />
 
       <div className="card" style={{ marginBottom: 12, padding: 12 }}>
         <div style={{ display: 'grid', gap: 10 }}>
@@ -868,28 +893,40 @@ export default function MenuPublicoPage() {
                 Limpiar
               </button>
             ) : null}
-
-            {navCategories.map((c) => (
-              <button
-                key={c.id}
-                className="button secondary"
-                style={{ borderColor: '#e5e7eb' }}
-                onClick={() => {
-                  const el = document.getElementById(`cat-${c.id}`)
-                  if (!el) return
-                  el.scrollIntoView({ behavior: 'smooth', block: 'start' })
-                }}
-              >
-                {c.name}
-              </button>
-            ))}
           </div>
 
           {productQuery.trim() || typeFilter !== 'all' ? (
             <div className="muted" style={{ fontSize: 12 }}>
-              Mostrando <strong style={{ color: '#111827' }}>{filteredItems.length}</strong> producto(s).
+              Mostrando <strong style={{ color: 'inherit' }}>{filteredItems.length}</strong> producto(s).
             </div>
           ) : null}
+        </div>
+      </div>
+
+      <div className="menuPublicoStickyNav">
+        <div className="row" style={{ gap: 8, flexWrap: 'nowrap' }}>
+          <button
+            className="button secondary"
+            style={{ borderColor: '#e5e7eb' }}
+            onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
+          >
+            Inicio
+          </button>
+
+          {navCategories.map((c) => (
+            <button
+              key={c.id}
+              className="button secondary"
+              style={{ borderColor: '#e5e7eb' }}
+              onClick={() => {
+                const el = document.getElementById(`cat-${c.id}`)
+                if (!el) return
+                el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+              }}
+            >
+              {String(c.name).toLowerCase().includes('bebid') ? 'Bebidas' : String(c.name).toLowerCase().includes('soda') ? 'Sodas' : c.name}
+            </button>
+          ))}
         </div>
       </div>
 
@@ -942,7 +979,7 @@ export default function MenuPublicoPage() {
                                   <strong className="priceNew">{money(applyPercentOff(getPrice30(i), i.promoPercent))}</strong>
                                 </span>
                               ) : (
-                                <strong style={{ color: '#111827' }}>{money(getPrice30(i))}</strong>
+                                <strong className="menuItemPrice">{money(getPrice30(i))}</strong>
                               )}
                             </div>
                             <div className="muted" style={{ fontSize: 12 }}>
@@ -953,7 +990,7 @@ export default function MenuPublicoPage() {
                                   <strong className="priceNew">{money(applyPercentOff(Number(getPrice20(i) ?? 0), i.promoPercent))}</strong>
                                 </span>
                               ) : (
-                                <strong style={{ color: '#111827' }}>{money(Number(getPrice20(i) ?? 0))}</strong>
+                                <strong className="menuItemPrice">{money(Number(getPrice20(i) ?? 0))}</strong>
                               )}
                             </div>
                           </div>

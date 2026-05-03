@@ -328,8 +328,9 @@ export default function CajaPage() {
   const openTabs = openTabsAll.filter((t) => !isInternalTab(t))
   const internalOpenTabs = openTabsAll.filter((t) => isInternalTab(t))
   const paidOrLegacyTabs = reportTabs.filter((t) => t.status === 'closed' && !(t as any)?.isVoided)
-  const pendingKitchen = orders.filter((o) => o.status === 'pending' && o.area === 'kitchen').length
-  const pendingBar = orders.filter((o) => o.status === 'pending' && o.area === 'bar').length
+  const openTabIds = React.useMemo(() => new Set(openTabsAll.map((t) => String((t as any)?.id ?? ''))), [openTabsAll])
+  const pendingKitchen = orders.filter((o: any) => o.status === 'pending' && o.area === 'kitchen' && openTabIds.has(String(o.tabId ?? ''))).length
+  const pendingBar = orders.filter((o: any) => o.status === 'pending' && o.area === 'bar' && openTabIds.has(String(o.tabId ?? ''))).length
   const report = React.useMemo(() => {
     const d = new Date(now)
     const dayStart = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0, 0).getTime()
@@ -682,8 +683,20 @@ export default function CajaPage() {
   const takeoutOpenTabsAll = takeoutTableIds.flatMap((id) => openTabsByTable[id] ?? [])
   const takeoutOpenTabs = takeoutOpenTabsAll.filter((t) => !isInternalTab(t))
   const internalTakeoutOpenTabs = takeoutOpenTabsAll.filter((t) => isInternalTab(t))
-  const takeoutPendingKitchen = orders.filter((o) => o.status === 'pending' && o.area === 'kitchen' && String(o.tableId ?? '').startsWith('togo-')).length
-  const takeoutPendingBar = orders.filter((o) => o.status === 'pending' && o.area === 'bar' && String(o.tableId ?? '').startsWith('togo-')).length
+  const takeoutPendingKitchen = orders.filter(
+    (o: any) =>
+      o.status === 'pending' &&
+      o.area === 'kitchen' &&
+      String(o.tableId ?? '').startsWith('togo-') &&
+      openTabIds.has(String(o.tabId ?? '')),
+  ).length
+  const takeoutPendingBar = orders.filter(
+    (o: any) =>
+      o.status === 'pending' &&
+      o.area === 'bar' &&
+      String(o.tableId ?? '').startsWith('togo-') &&
+      openTabIds.has(String(o.tabId ?? '')),
+  ).length
 
   const payOverlayStyle: React.CSSProperties = {
     position: 'fixed',
@@ -730,16 +743,9 @@ export default function CajaPage() {
               >
                 Caja
               </button>
-              <button
-                className="button secondary"
-                style={isActiveStyle(view === 'report')}
-                onClick={() => {
-                  setView('report')
-                  navigate('/caja?v=report')
-                }}
-              >
+              <Link className="button secondary" to="/admin?v=report" style={{ borderColor: '#e5e7eb' }}>
                 Reporte
-              </button>
+              </Link>
               <Link className="button secondary" to="/almacen" style={{ borderColor: '#e5e7eb' }}>
                 Almacén
               </Link>
