@@ -328,9 +328,29 @@ export default function CajaPage() {
   const openTabs = openTabsAll.filter((t) => !isInternalTab(t))
   const internalOpenTabs = openTabsAll.filter((t) => isInternalTab(t))
   const paidOrLegacyTabs = reportTabs.filter((t) => t.status === 'closed' && !(t as any)?.isVoided)
-  const openTabIds = React.useMemo(() => new Set(openTabsAll.map((t) => String((t as any)?.id ?? ''))), [openTabsAll])
-  const pendingKitchen = orders.filter((o: any) => o.status === 'pending' && o.area === 'kitchen' && openTabIds.has(String(o.tabId ?? ''))).length
-  const pendingBar = orders.filter((o: any) => o.status === 'pending' && o.area === 'bar' && openTabIds.has(String(o.tabId ?? ''))).length
+  const openNonInternalTabIds = React.useMemo(() => new Set(openTabs.map((t) => String((t as any)?.id ?? ''))), [openTabs])
+  const openInternalTabIds = React.useMemo(() => new Set(internalOpenTabs.map((t) => String((t as any)?.id ?? ''))), [internalOpenTabs])
+
+  const pendingKitchen = orders.filter(
+    (o: any) => o.status === 'pending' && o.area === 'kitchen' && openNonInternalTabIds.has(String(o.tabId ?? '')),
+  ).length
+  const pendingBar = orders.filter(
+    (o: any) => o.status === 'pending' && o.area === 'bar' && openNonInternalTabIds.has(String(o.tabId ?? '')),
+  ).length
+  const internalPendingKitchen = orders.filter(
+    (o: any) => o.status === 'pending' && o.area === 'kitchen' && openInternalTabIds.has(String(o.tabId ?? '')),
+  ).length
+  const internalPendingBar = orders.filter(
+    (o: any) => o.status === 'pending' && o.area === 'bar' && openInternalTabIds.has(String(o.tabId ?? '')),
+  ).length
+
+  const internalPendingOrders = React.useMemo(
+    () =>
+      orders
+        .filter((o: any) => o.status === 'pending' && openInternalTabIds.has(String(o.tabId ?? '')))
+        .slice(0, 12),
+    [openInternalTabIds, orders],
+  )
   const report = React.useMemo(() => {
     const d = new Date(now)
     const dayStart = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0, 0).getTime()
@@ -683,20 +703,52 @@ export default function CajaPage() {
   const takeoutOpenTabsAll = takeoutTableIds.flatMap((id) => openTabsByTable[id] ?? [])
   const takeoutOpenTabs = takeoutOpenTabsAll.filter((t) => !isInternalTab(t))
   const internalTakeoutOpenTabs = takeoutOpenTabsAll.filter((t) => isInternalTab(t))
+  const takeoutOpenNonInternalTabIds = React.useMemo(() => new Set(takeoutOpenTabs.map((t) => String((t as any)?.id ?? ''))), [takeoutOpenTabs])
+  const takeoutOpenInternalTabIds = React.useMemo(
+    () => new Set(internalTakeoutOpenTabs.map((t) => String((t as any)?.id ?? ''))),
+    [internalTakeoutOpenTabs],
+  )
   const takeoutPendingKitchen = orders.filter(
     (o: any) =>
       o.status === 'pending' &&
       o.area === 'kitchen' &&
       String(o.tableId ?? '').startsWith('togo-') &&
-      openTabIds.has(String(o.tabId ?? '')),
+      takeoutOpenNonInternalTabIds.has(String(o.tabId ?? '')),
   ).length
   const takeoutPendingBar = orders.filter(
     (o: any) =>
       o.status === 'pending' &&
       o.area === 'bar' &&
       String(o.tableId ?? '').startsWith('togo-') &&
-      openTabIds.has(String(o.tabId ?? '')),
+      takeoutOpenNonInternalTabIds.has(String(o.tabId ?? '')),
   ).length
+  const internalTakeoutPendingKitchen = orders.filter(
+    (o: any) =>
+      o.status === 'pending' &&
+      o.area === 'kitchen' &&
+      String(o.tableId ?? '').startsWith('togo-') &&
+      takeoutOpenInternalTabIds.has(String(o.tabId ?? '')),
+  ).length
+  const internalTakeoutPendingBar = orders.filter(
+    (o: any) =>
+      o.status === 'pending' &&
+      o.area === 'bar' &&
+      String(o.tableId ?? '').startsWith('togo-') &&
+      takeoutOpenInternalTabIds.has(String(o.tabId ?? '')),
+  ).length
+
+  const internalTakeoutPendingOrders = React.useMemo(
+    () =>
+      orders
+        .filter(
+          (o: any) =>
+            o.status === 'pending' &&
+            String(o.tableId ?? '').startsWith('togo-') &&
+            takeoutOpenInternalTabIds.has(String(o.tabId ?? '')),
+        )
+        .slice(0, 12),
+    [orders, takeoutOpenInternalTabIds],
+  )
 
   const payOverlayStyle: React.CSSProperties = {
     position: 'fixed',
@@ -1147,6 +1199,20 @@ export default function CajaPage() {
                 <div className="muted" style={{ fontSize: 12 }}>
                   Órdenes pendientes: <strong style={{ color: '#111827' }}>{pendingKitchen}</strong> cocina · <strong style={{ color: '#111827' }}>{pendingBar}</strong> barra
                 </div>
+                {internalPendingKitchen || internalPendingBar ? (
+                  <div className="muted" style={{ fontSize: 12 }}>
+                    Pendientes internas: <strong style={{ color: '#111827' }}>{internalPendingKitchen}</strong> cocina · <strong style={{ color: '#111827' }}>{internalPendingBar}</strong> barra
+                  </div>
+                ) : null}
+                {internalPendingOrders.length ? (
+                  <div className="muted" style={{ fontSize: 11, marginTop: 6 }}>
+                    {internalPendingOrders.map((o: any) => (
+                      <div key={String(o.id ?? '')} style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        {String(o.area ?? '').toUpperCase()} · {String(o.tableLabel ?? o.tableId ?? '—')} · order:{String(o.id ?? '').slice(-6)} · tab:{String(o.tabId ?? '').slice(-6)}
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
               </div>
 
               <div>
@@ -1162,6 +1228,20 @@ export default function CajaPage() {
                 <div className="muted" style={{ fontSize: 12 }}>
                   Órdenes pendientes: <strong style={{ color: '#111827' }}>{takeoutPendingKitchen}</strong> cocina · <strong style={{ color: '#111827' }}>{takeoutPendingBar}</strong> barra
                 </div>
+                {internalTakeoutPendingKitchen || internalTakeoutPendingBar ? (
+                  <div className="muted" style={{ fontSize: 12 }}>
+                    Pendientes internas: <strong style={{ color: '#111827' }}>{internalTakeoutPendingKitchen}</strong> cocina · <strong style={{ color: '#111827' }}>{internalTakeoutPendingBar}</strong> barra
+                  </div>
+                ) : null}
+                {internalTakeoutPendingOrders.length ? (
+                  <div className="muted" style={{ fontSize: 11, marginTop: 6 }}>
+                    {internalTakeoutPendingOrders.map((o: any) => (
+                      <div key={String(o.id ?? '')} style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        {String(o.area ?? '').toUpperCase()} · {String(o.tableLabel ?? o.tableId ?? '—')} · order:{String(o.id ?? '').slice(-6)} · tab:{String(o.tabId ?? '').slice(-6)}
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
               </div>
             </div>
           </div>
@@ -1254,6 +1334,7 @@ export default function CajaPage() {
             </button>
             <button
               className="button secondary"
+              disabled={!payTab}
               onClick={async () => {
                 if (!payTab) return
                 const example = 'mesa-02'
@@ -1267,22 +1348,6 @@ export default function CajaPage() {
               }}
             >
               Cambiar mesa
-            </button>
-            <button
-              className="button secondary"
-              onClick={() => {
-                setPayMsg(null)
-                setTipMode('none')
-                setTipCustom('')
-                setPayMethod('efectivo')
-                setPayCourtesy(false)
-                setPayCourtesyPct(100)
-                setPayCourtesyName('')
-                setPayTab(payTab)
-                setPayOpen(true)
-              }}
-            >
-              Cobrar
             </button>
           </div>
         </div>
