@@ -454,13 +454,37 @@ export default function CajaPage() {
       {
         tabs: Tab[]
         sum: number
-        byMethod: { efectivo: number; terminal: number; transferencia: number; cortesia: number; legacy: number }
+        byMethod: {
+          efectivo: number
+          propinaEfectivo: number
+          terminal: number
+          propinaTerminal: number
+          transferencia: number
+          propinaTransferencia: number
+          cortesia: number
+          legacy: number
+        }
         masa: { cm20: number; cm30: number }
       }
     > = {
-      day: { tabs: [], sum: 0, byMethod: { efectivo: 0, terminal: 0, transferencia: 0, cortesia: 0, legacy: 0 }, masa: { cm20: 0, cm30: 0 } },
-      week: { tabs: [], sum: 0, byMethod: { efectivo: 0, terminal: 0, transferencia: 0, cortesia: 0, legacy: 0 }, masa: { cm20: 0, cm30: 0 } },
-      month: { tabs: [], sum: 0, byMethod: { efectivo: 0, terminal: 0, transferencia: 0, cortesia: 0, legacy: 0 }, masa: { cm20: 0, cm30: 0 } },
+      day: {
+        tabs: [],
+        sum: 0,
+        byMethod: { efectivo: 0, propinaEfectivo: 0, terminal: 0, propinaTerminal: 0, transferencia: 0, propinaTransferencia: 0, cortesia: 0, legacy: 0 },
+        masa: { cm20: 0, cm30: 0 },
+      },
+      week: {
+        tabs: [],
+        sum: 0,
+        byMethod: { efectivo: 0, propinaEfectivo: 0, terminal: 0, propinaTerminal: 0, transferencia: 0, propinaTransferencia: 0, cortesia: 0, legacy: 0 },
+        masa: { cm20: 0, cm30: 0 },
+      },
+      month: {
+        tabs: [],
+        sum: 0,
+        byMethod: { efectivo: 0, propinaEfectivo: 0, terminal: 0, propinaTerminal: 0, transferencia: 0, propinaTransferencia: 0, cortesia: 0, legacy: 0 },
+        masa: { cm20: 0, cm30: 0 },
+      },
     }
 
     const compute = (key: 'day' | 'week' | 'month', start: number, end: number) => {
@@ -478,7 +502,7 @@ export default function CajaPage() {
         })
 
       let sum = 0
-      const byMethod = { efectivo: 0, terminal: 0, transferencia: 0, cortesia: 0, legacy: 0 }
+      const byMethod = { efectivo: 0, propinaEfectivo: 0, terminal: 0, propinaTerminal: 0, transferencia: 0, propinaTransferencia: 0, cortesia: 0, legacy: 0 }
       const masa = { cm20: 0, cm30: 0 }
 
       for (const t of rows) {
@@ -487,13 +511,24 @@ export default function CajaPage() {
         sum += total
 
         const pbm = isPaid ? ((t as any)?.paidByMethod as any) : null
+        const tbm = isPaid ? ((t as any)?.tipByMethod as any) : null
         if (pbm && typeof pbm === 'object') {
           byMethod.efectivo += Number(pbm.efectivo ?? 0)
           byMethod.terminal += Number(pbm.terminal ?? 0)
           byMethod.transferencia += Number(pbm.transferencia ?? 0)
           byMethod.cortesia += Number(pbm.cortesia ?? 0)
+
+          if (tbm && typeof tbm === 'object') {
+            byMethod.propinaEfectivo += Number(tbm.efectivo ?? 0)
+            byMethod.propinaTerminal += Number(tbm.terminal ?? 0)
+            byMethod.propinaTransferencia += Number(tbm.transferencia ?? 0)
+          }
           continue
         }
+
+        const tip = isPaid ? Number((t as any).tipAmount ?? 0) : 0
+        const tipOk = Number.isFinite(tip) && tip > 0 ? tip : 0
+        const baseTotal = Math.max(0, total - tipOk)
 
         const rawMethod = isPaid ? String((t as any).paymentMethod ?? '') : 'legacy'
         const m =
@@ -506,7 +541,19 @@ export default function CajaPage() {
                 : rawMethod === 'cortesia'
                   ? 'cortesia'
                   : 'legacy'
-        ;(byMethod as any)[m] = Number((byMethod as any)[m] ?? 0) + total
+
+        if (m === 'terminal') {
+          byMethod.terminal += baseTotal
+          byMethod.propinaTerminal += tipOk
+        } else if (m === 'transferencia') {
+          byMethod.transferencia += baseTotal
+          byMethod.propinaTransferencia += tipOk
+        } else if (m === 'efectivo') {
+          byMethod.efectivo += baseTotal
+          byMethod.propinaEfectivo += tipOk
+        } else {
+          ;(byMethod as any)[m] = Number((byMethod as any)[m] ?? 0) + total
+        }
       }
 
       const tabIds = new Set(rows.map((t) => String((t as any)?.id ?? (t as any))) )
@@ -1022,10 +1069,19 @@ export default function CajaPage() {
                 Efectivo: <strong style={{ color: '#111827' }}>{money(reportDetails.day.byMethod.efectivo)}</strong>
               </div>
               <div className="muted" style={{ fontSize: 12 }}>
+                Propina efectivo: <strong style={{ color: '#111827' }}>{money(reportDetails.day.byMethod.propinaEfectivo)}</strong>
+              </div>
+              <div className="muted" style={{ fontSize: 12 }}>
                 Tarjeta: <strong style={{ color: '#111827' }}>{money(reportDetails.day.byMethod.terminal)}</strong>
               </div>
               <div className="muted" style={{ fontSize: 12 }}>
+                Propina tarjeta: <strong style={{ color: '#111827' }}>{money(reportDetails.day.byMethod.propinaTerminal)}</strong>
+              </div>
+              <div className="muted" style={{ fontSize: 12 }}>
                 Transferencia: <strong style={{ color: '#111827' }}>{money(reportDetails.day.byMethod.transferencia)}</strong>
+              </div>
+              <div className="muted" style={{ fontSize: 12 }}>
+                Propina transferencia: <strong style={{ color: '#111827' }}>{money(reportDetails.day.byMethod.propinaTransferencia)}</strong>
               </div>
               <div className="muted" style={{ fontSize: 12 }}>
                 Masa 20: <strong style={{ color: '#111827' }}>{String(reportDetails.day.masa.cm20)}</strong>
@@ -1041,10 +1097,19 @@ export default function CajaPage() {
                 Efectivo: <strong style={{ color: '#111827' }}>{money(reportDetails.week.byMethod.efectivo)}</strong>
               </div>
               <div className="muted" style={{ fontSize: 12 }}>
+                Propina efectivo: <strong style={{ color: '#111827' }}>{money(reportDetails.week.byMethod.propinaEfectivo)}</strong>
+              </div>
+              <div className="muted" style={{ fontSize: 12 }}>
                 Tarjeta: <strong style={{ color: '#111827' }}>{money(reportDetails.week.byMethod.terminal)}</strong>
               </div>
               <div className="muted" style={{ fontSize: 12 }}>
+                Propina tarjeta: <strong style={{ color: '#111827' }}>{money(reportDetails.week.byMethod.propinaTerminal)}</strong>
+              </div>
+              <div className="muted" style={{ fontSize: 12 }}>
                 Transferencia: <strong style={{ color: '#111827' }}>{money(reportDetails.week.byMethod.transferencia)}</strong>
+              </div>
+              <div className="muted" style={{ fontSize: 12 }}>
+                Propina transferencia: <strong style={{ color: '#111827' }}>{money(reportDetails.week.byMethod.propinaTransferencia)}</strong>
               </div>
               <div className="muted" style={{ fontSize: 12 }}>
                 Masa 20: <strong style={{ color: '#111827' }}>{String(reportDetails.week.masa.cm20)}</strong>
@@ -1060,10 +1125,19 @@ export default function CajaPage() {
                 Efectivo: <strong style={{ color: '#111827' }}>{money(reportDetails.month.byMethod.efectivo)}</strong>
               </div>
               <div className="muted" style={{ fontSize: 12 }}>
+                Propina efectivo: <strong style={{ color: '#111827' }}>{money(reportDetails.month.byMethod.propinaEfectivo)}</strong>
+              </div>
+              <div className="muted" style={{ fontSize: 12 }}>
                 Tarjeta: <strong style={{ color: '#111827' }}>{money(reportDetails.month.byMethod.terminal)}</strong>
               </div>
               <div className="muted" style={{ fontSize: 12 }}>
+                Propina tarjeta: <strong style={{ color: '#111827' }}>{money(reportDetails.month.byMethod.propinaTerminal)}</strong>
+              </div>
+              <div className="muted" style={{ fontSize: 12 }}>
                 Transferencia: <strong style={{ color: '#111827' }}>{money(reportDetails.month.byMethod.transferencia)}</strong>
+              </div>
+              <div className="muted" style={{ fontSize: 12 }}>
+                Propina transferencia: <strong style={{ color: '#111827' }}>{money(reportDetails.month.byMethod.propinaTransferencia)}</strong>
               </div>
               <div className="muted" style={{ fontSize: 12 }}>
                 Masa 20: <strong style={{ color: '#111827' }}>{String(reportDetails.month.masa.cm20)}</strong>
@@ -1099,12 +1173,24 @@ export default function CajaPage() {
                     <div style={{ fontWeight: 950 }}>{money(reportDetails[reportOpen].byMethod.efectivo)}</div>
                   </div>
                   <div className="row" style={{ justifyContent: 'space-between' }}>
+                    <div className="muted" style={{ fontSize: 12 }}>Propina efectivo</div>
+                    <div style={{ fontWeight: 950 }}>{money(reportDetails[reportOpen].byMethod.propinaEfectivo)}</div>
+                  </div>
+                  <div className="row" style={{ justifyContent: 'space-between' }}>
                     <div className="muted" style={{ fontSize: 12 }}>Tarjeta</div>
                     <div style={{ fontWeight: 950 }}>{money(reportDetails[reportOpen].byMethod.terminal)}</div>
                   </div>
                   <div className="row" style={{ justifyContent: 'space-between' }}>
+                    <div className="muted" style={{ fontSize: 12 }}>Propina tarjeta</div>
+                    <div style={{ fontWeight: 950 }}>{money(reportDetails[reportOpen].byMethod.propinaTerminal)}</div>
+                  </div>
+                  <div className="row" style={{ justifyContent: 'space-between' }}>
                     <div className="muted" style={{ fontSize: 12 }}>Transferencia</div>
                     <div style={{ fontWeight: 950 }}>{money(reportDetails[reportOpen].byMethod.transferencia)}</div>
+                  </div>
+                  <div className="row" style={{ justifyContent: 'space-between' }}>
+                    <div className="muted" style={{ fontSize: 12 }}>Propina transferencia</div>
+                    <div style={{ fontWeight: 950 }}>{money(reportDetails[reportOpen].byMethod.propinaTransferencia)}</div>
                   </div>
                   <div className="row" style={{ justifyContent: 'space-between' }}>
                     <div className="muted" style={{ fontSize: 12 }}>Masa 20</div>
@@ -1126,7 +1212,7 @@ export default function CajaPage() {
                         const dt = (t as any)?.paidAt?.toDate ? (t as any).paidAt.toDate() : (t as any)?.closedAt?.toDate ? (t as any).closedAt.toDate() : null
                         const isPaid = Boolean((t as any)?.paidAt?.toMillis)
                         const subtotal = Number((t as any).total ?? 0)
-                        const tip = isPaid ? Number((t as any).tip ?? 0) : 0
+                        const tip = isPaid ? Number((t as any).tipAmount ?? 0) : 0
                         const paidTotal = isPaid ? Number((t as any).paidTotal ?? subtotal ?? 0) : subtotal
                         return (
                           <div key={String((t as any)?.id ?? '')}>
