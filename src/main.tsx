@@ -36,11 +36,16 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
         <App />
         <ScrollToTopFab />
         <div className="appFooter">
-          <div className="appFooterBubble">
+          <a
+            className="appFooterBubble"
+            href="https://unknownshoppers.com/menutags-landing/"
+            target="_blank"
+            rel="noreferrer"
+          >
             <span className="appFooterMenu">MENUTAGS</span>
             <span className="appFooterBy">by</span>
             <span className="appFooterBrand">The Unknown Shoppers</span>
-          </div>
+          </a>
         </div>
       </AuthProvider>
     </BrowserRouter>

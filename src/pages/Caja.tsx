@@ -4,6 +4,7 @@ import {
   collection,
   getDoc,
   getDocs,
+  limit,
   onSnapshot,
   orderBy,
   query,
@@ -123,6 +124,10 @@ export default function CajaPage() {
   >([{ method: 'efectivo', amount: '', tip: '' }])
   const [payBusy, setPayBusy] = React.useState(false)
   const [payMsg, setPayMsg] = React.useState<string | null>(null)
+
+  const [waiterCallTop, setWaiterCallTop] = React.useState<any | null>(null)
+  const [waiterCallOpen, setWaiterCallOpen] = React.useState(false)
+  const lastWaiterCallIdRef = React.useRef<string>('')
 
   const moveTabToTable = React.useCallback(
     async (t: Tab, targetTableId: string, opts?: { silent?: boolean }) => {
@@ -276,6 +281,33 @@ export default function CajaPage() {
   React.useEffect(() => {
     const t = window.setInterval(() => setNow(Date.now()), 15_000)
     return () => window.clearInterval(t)
+  }, [])
+
+  React.useEffect(() => {
+    const key = 'caja:lastSeenWaiterCallId'
+    lastWaiterCallIdRef.current = String(localStorage.getItem(key) ?? '')
+
+    const q = query(collection(db, 'waiterCalls'), where('status', '==', 'pending'), orderBy('createdAt', 'desc'), limit(1))
+    return onSnapshot(
+      q,
+      (snap) => {
+        const d = snap.docs[0]
+        if (!d) {
+          setWaiterCallTop(null)
+          setWaiterCallOpen(false)
+          return
+        }
+        const data = { id: d.id, ...(d.data() as any) }
+        setWaiterCallTop(data)
+        if (String(data.id) && String(data.id) !== String(lastWaiterCallIdRef.current)) {
+          setWaiterCallOpen(true)
+        }
+      },
+      () => {
+        setWaiterCallTop(null)
+        setWaiterCallOpen(false)
+      },
+    )
   }, [])
 
   React.useEffect(() => {
@@ -920,6 +952,62 @@ export default function CajaPage() {
           ) : null
         }
       />
+
+      {waiterCallOpen && waiterCallTop ? (
+        <div
+          className="card"
+          style={{
+            margin: '0 0 12px 0',
+            borderColor: 'rgba(239, 68, 68, 0.35)',
+            background: 'rgba(239, 68, 68, 0.06)',
+          }}
+        >
+          <div className="row" style={{ justifyContent: 'space-between', alignItems: 'flex-start' }}>
+            <div>
+              <div style={{ fontWeight: 950 }}>Llamado de mesero</div>
+              <div className="muted" style={{ fontSize: 12 }}>
+                {tableLabel(String((waiterCallTop as any)?.tableId ?? ''))} · Cliente solicita mesero
+              </div>
+            </div>
+            <div className="row" style={{ gap: 8, justifyContent: 'flex-end' }}>
+              <button
+                className="button"
+                onClick={async () => {
+                  try {
+                    if (!user?.uid) return
+                    await updateDoc(doc(db, 'waiterCalls', String((waiterCallTop as any)?.id ?? '')), {
+                      status: 'acknowledged',
+                      ackByUid: user.uid,
+                      ackAt: serverTimestamp(),
+                    })
+                    const key = 'caja:lastSeenWaiterCallId'
+                    const id = String((waiterCallTop as any)?.id ?? '')
+                    lastWaiterCallIdRef.current = id
+                    localStorage.setItem(key, id)
+                    setWaiterCallOpen(false)
+                  } catch {
+                    // ignore
+                  }
+                }}
+              >
+                Atender
+              </button>
+              <button
+                className="button secondary"
+                onClick={() => {
+                  const key = 'caja:lastSeenWaiterCallId'
+                  const id = String((waiterCallTop as any)?.id ?? '')
+                  lastWaiterCallIdRef.current = id
+                  localStorage.setItem(key, id)
+                  setWaiterCallOpen(false)
+                }}
+              >
+                Cerrar
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {view === 'report' ? (
         <div className="card" style={{ marginBottom: 12 }}>

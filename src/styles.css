@@ -31,32 +31,41 @@ body {
   gap: 8px;
   padding: 10px 14px;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.96);
-  border: 2px solid rgba(17, 24, 39, 0.12);
+  background: rgba(0, 0, 0, 0.92);
+  border: 2px solid rgba(0, 0, 0, 0.40);
   box-shadow:
     0 10px 26px rgba(0, 0, 0, 0.14),
     0 2px 0 rgba(255, 255, 255, 0.35) inset;
   backdrop-filter: blur(6px);
+  text-decoration: none;
+}
+
+.appFooterBubble:hover {
+  background: rgba(0, 0, 0, 0.96);
+}
+
+.appFooterBubble:active {
+  transform: translateY(1px);
 }
 
 .appFooterMenu {
   font-size: 12px;
   font-weight: 950;
   letter-spacing: 0.08em;
-  color: #16a34a;
+  color: rgba(255, 255, 255, 0.98);
 }
 
 .appFooterBy {
   font-size: 12px;
   font-weight: 900;
-  color: #111827;
+  color: rgba(255, 255, 255, 0.88);
 }
 
 .appFooterBrand {
   font-size: 12px;
   font-weight: 950;
   letter-spacing: 0.02em;
-  color: #dc2626;
+  color: rgba(255, 255, 255, 0.98);
 }
 
 .scrollTopFab {
@@ -593,6 +602,71 @@ a {
   border: 1px solid rgba(0, 0, 0, 0.08);
 }
 
+@media (max-width: 640px) {
+  .topbar.topbarAutoHide {
+    transition: transform 180ms ease, opacity 180ms ease;
+    will-change: transform;
+  }
+
+  .topbar.topbarAutoHide.topbarHidden {
+    transform: translateY(-120%);
+    opacity: 0;
+  }
+
+  .topbar {
+    padding: 8px 10px;
+    gap: 10px;
+    margin-bottom: 10px;
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .topbarTitle {
+    font-size: 16px;
+  }
+
+  .topbarSub {
+    gap: 6px;
+    font-size: 11px;
+    flex-wrap: nowrap;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .topbarSub strong {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .topbarLeft {
+    flex: 1 1 auto;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .topbarRight {
+    flex: 0 0 auto;
+    flex-wrap: wrap;
+    overflow-x: visible;
+    max-width: 100%;
+    gap: 6px;
+    padding-bottom: 2px;
+    justify-content: flex-start;
+  }
+
+  .topbarRight::-webkit-scrollbar {
+    display: none;
+  }
+
+  .topbarRight .button {
+    padding: 7px 10px;
+    font-size: 12px;
+    white-space: nowrap;
+  }
+}
+
 .topbarTitle {
   font-size: 18px;
   font-weight: 700;
@@ -605,6 +679,10 @@ a {
   flex-wrap: wrap;
   font-size: 12px;
   color: #6b7280;
+}
+
+.topbarLeft {
+  min-width: 0;
 }
 
 .pill {

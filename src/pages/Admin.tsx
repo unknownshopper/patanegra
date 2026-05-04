@@ -1372,6 +1372,7 @@ export default function AdminPage() {
       <SessionBar
         title="Admin"
         showMenuButton={false}
+        autoHideOnScroll={view === 'report'}
         rightSlot={
           <>
             <button
