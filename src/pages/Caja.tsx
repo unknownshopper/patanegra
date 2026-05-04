@@ -28,9 +28,11 @@ type Tab = {
   closedAt?: any
   total?: number
   paymentStatus?: 'paid' | 'unpaid'
-  paymentMethod?: 'efectivo' | 'terminal' | 'transferencia' | 'cortesia'
+  paymentMethod?: 'efectivo' | 'terminal' | 'transferencia' | 'cortesia' | 'mixed'
   tipAmount?: number
   paidTotal?: number
+  paidByMethod?: { efectivo?: number; terminal?: number; transferencia?: number; cortesia?: number }
+  tipByMethod?: { efectivo?: number; terminal?: number; transferencia?: number }
   paidAt?: any
   paidByUid?: string | null
   paidByName?: string | null
@@ -116,8 +118,9 @@ export default function CajaPage() {
   const [payCourtesy, setPayCourtesy] = React.useState(false)
   const [payCourtesyPct, setPayCourtesyPct] = React.useState<30 | 50 | 100>(100)
   const [payCourtesyName, setPayCourtesyName] = React.useState('')
-  const [tipMode, setTipMode] = React.useState<'none' | 'pct5' | 'pct10' | 'pct15' | 'pct20' | 'custom'>('none')
-  const [tipCustom, setTipCustom] = React.useState('')
+  const [paySplits, setPaySplits] = React.useState<
+    Array<{ method: 'efectivo' | 'terminal' | 'transferencia'; amount: string; tip: string }>
+  >([{ method: 'efectivo', amount: '', tip: '' }])
   const [payBusy, setPayBusy] = React.useState(false)
   const [payMsg, setPayMsg] = React.useState<string | null>(null)
 
@@ -209,16 +212,49 @@ export default function CajaPage() {
     const courtesyAmount =
       courtesyPct > 0 ? Math.max(0, Math.round((baseTotal * courtesyPct) / 100 * 100) / 100) : 0
     const netBaseTotal = Math.max(0, Math.round((baseTotal - courtesyAmount) * 100) / 100)
-    const pct = tipMode === 'pct5' ? 0.05 : tipMode === 'pct10' ? 0.1 : tipMode === 'pct15' ? 0.15 : tipMode === 'pct20' ? 0.2 : 0
-    const tip =
-      (payMethod !== 'terminal' && payMethod !== 'transferencia') || payCourtesy
-        ? 0
-        : tipMode === 'custom'
-          ? Math.max(0, Number(String(tipCustom ?? '').replace(/[^0-9.]/g, '')) || 0)
-          : Math.max(0, Math.round(netBaseTotal * pct * 100) / 100)
-    const paidTotal = Math.max(0, Math.round((netBaseTotal + tip) * 100) / 100)
-    return { baseTotal, courtesyPct, courtesyAmount, netBaseTotal, tip, paidTotal }
-  }, [payCourtesy, payCourtesyPct, payMethod, payTab?.total, tipCustom, tipMode])
+    return { baseTotal, courtesyPct, courtesyAmount, netBaseTotal }
+  }, [payCourtesy, payCourtesyPct, payTab?.total])
+
+  const paySplitComputed = React.useMemo(() => {
+    const parse = (s: any) => {
+      const n = Number(String(s ?? '').replace(/[^0-9.]/g, ''))
+      return Number.isFinite(n) ? n : 0
+    }
+
+    const basePaidByMethod = { efectivo: 0, terminal: 0, transferencia: 0 }
+    const tipPaidByMethod = { efectivo: 0, terminal: 0, transferencia: 0 }
+    for (const p of Array.isArray(paySplits) ? paySplits : []) {
+      if (!p) continue
+      const m = p.method
+      const v = Math.max(0, Math.round(parse(p.amount) * 100) / 100)
+      const t = Math.max(0, Math.round(parse((p as any).tip) * 100) / 100)
+      if (m === 'efectivo' || m === 'terminal' || m === 'transferencia') (basePaidByMethod as any)[m] += v
+      if (m === 'efectivo' || m === 'terminal' || m === 'transferencia') (tipPaidByMethod as any)[m] += t
+    }
+    const basePaidSum = Math.round((basePaidByMethod.efectivo + basePaidByMethod.terminal + basePaidByMethod.transferencia) * 100) / 100
+    const tipSum = Math.round((tipPaidByMethod.efectivo + tipPaidByMethod.terminal + tipPaidByMethod.transferencia) * 100) / 100
+
+    const grandTotal = Math.round((payComputed.netBaseTotal + tipSum) * 100) / 100
+    const remainingBase = Math.round((payComputed.netBaseTotal - basePaidSum) * 100) / 100
+    return { basePaidByMethod, basePaidSum, tipPaidByMethod, tipSum, grandTotal, remainingBase }
+  }, [payComputed.netBaseTotal, paySplits])
+
+  React.useEffect(() => {
+    if (!payOpen || !payTab) return
+
+    if (payCourtesy && payCourtesyPct === 100) {
+      setPaySplits([{ method: 'efectivo', amount: '', tip: '' }])
+      return
+    }
+
+    setPaySplits([
+      {
+        method: payMethod === 'cortesia' ? 'efectivo' : (payMethod as any),
+        amount: String(payComputed.netBaseTotal || ''),
+        tip: '',
+      },
+    ])
+  }, [payComputed.netBaseTotal, payCourtesy, payCourtesyPct, payMethod, payOpen, payTab])
 
   const [reportOpen, setReportOpen] = React.useState<'day' | 'week' | 'month' | null>(null)
   const [reportDayOpen, setReportDayOpen] = React.useState<string | null>(null)
@@ -418,8 +454,26 @@ export default function CajaPage() {
         const total = isPaid ? Number((t as any).paidTotal ?? (t as any).total ?? 0) : Number((t as any).total ?? 0)
         sum += total
 
+        const pbm = isPaid ? ((t as any)?.paidByMethod as any) : null
+        if (pbm && typeof pbm === 'object') {
+          byMethod.efectivo += Number(pbm.efectivo ?? 0)
+          byMethod.terminal += Number(pbm.terminal ?? 0)
+          byMethod.transferencia += Number(pbm.transferencia ?? 0)
+          byMethod.cortesia += Number(pbm.cortesia ?? 0)
+          continue
+        }
+
         const rawMethod = isPaid ? String((t as any).paymentMethod ?? '') : 'legacy'
-        const m = rawMethod === 'efectivo' ? 'efectivo' : rawMethod === 'terminal' ? 'terminal' : rawMethod === 'transferencia' ? 'transferencia' : rawMethod === 'cortesia' ? 'cortesia' : 'legacy'
+        const m =
+          rawMethod === 'efectivo'
+            ? 'efectivo'
+            : rawMethod === 'terminal'
+              ? 'terminal'
+              : rawMethod === 'transferencia'
+                ? 'transferencia'
+                : rawMethod === 'cortesia'
+                  ? 'cortesia'
+                  : 'legacy'
         ;(byMethod as any)[m] = Number((byMethod as any)[m] ?? 0) + total
       }
 
@@ -1472,8 +1526,6 @@ export default function CajaPage() {
                             className="button secondary"
                             onClick={() => {
                               setPayMsg(null)
-                              setTipMode('none')
-                              setTipCustom('')
                               setPayMethod('efectivo')
                               setPayCourtesy(false)
                               setPayCourtesyPct(100)
@@ -1716,8 +1768,6 @@ export default function CajaPage() {
                                   className="button secondary"
                                   onClick={() => {
                                     setPayMsg(null)
-                                    setTipMode('none')
-                                    setTipCustom('')
                                     setPayMethod('efectivo')
                                     setPayCourtesy(false)
                                     setPayCourtesyPct(100)
@@ -1919,7 +1969,7 @@ export default function CajaPage() {
                 </div>
                 <div style={{ textAlign: 'right' }}>
                   <div className="muted" style={{ fontSize: 12 }}>Total</div>
-                  <div style={{ fontWeight: 950, fontSize: 22 }}>{money(payComputed.paidTotal)}</div>
+                  <div style={{ fontWeight: 950, fontSize: 22 }}>{money(paySplitComputed.grandTotal)}</div>
                 </div>
               </div>
 
@@ -1936,7 +1986,7 @@ export default function CajaPage() {
 
               <div className="row" style={{ justifyContent: 'space-between' }}>
                 <div className="muted" style={{ fontSize: 12 }}>Propina</div>
-                <div style={{ fontWeight: 900 }}>{money(payComputed.tip)}</div>
+                <div style={{ fontWeight: 900 }}>{money(paySplitComputed.tipSum)}</div>
               </div>
             </div>
 
@@ -1957,8 +2007,6 @@ export default function CajaPage() {
                     setPayCourtesy(on)
                     if (on) {
                       if (payCourtesyPct === 100) setPayMethod('cortesia')
-                      setTipMode('none')
-                      setTipCustom('')
                     } else {
                       setPayMethod('efectivo')
                     }
@@ -2023,40 +2071,69 @@ export default function CajaPage() {
 
             <div style={{ height: 10 }} />
 
-            <div style={{ display: 'grid', gap: 6 }}>
-              <div className="muted" style={{ fontSize: 12 }}>Método de pago</div>
-              <select
-                className="input"
-                value={payCourtesy && payCourtesyPct === 100 ? 'cortesia' : payMethod}
-                disabled={payBusy || (payCourtesy && payCourtesyPct === 100)}
-                onChange={(e) => setPayMethod(e.target.value as any)}
-              >
-                <option value="efectivo">Efectivo</option>
-                <option value="terminal">Terminal</option>
-                <option value="transferencia">Transferencia</option>
-              </select>
-            </div>
-
-            <div style={{ height: 10 }} />
-
-            {(payMethod === 'terminal' || payMethod === 'transferencia') && !payCourtesy ? (
+            {!payCourtesy || payCourtesyPct !== 100 ? (
               <div className="card" style={{ margin: 0 }}>
-                <div className="muted" style={{ fontSize: 12 }}>Propina</div>
-                <div style={{ height: 8 }} />
-                <div className="row" style={{ gap: 8, justifyContent: 'flex-start', flexWrap: 'wrap' }}>
-                  <button className="button secondary" style={isActiveStyle(tipMode === 'pct5')} onClick={() => setTipMode('pct5')}>5%</button>
-                  <button className="button secondary" style={isActiveStyle(tipMode === 'pct10')} onClick={() => setTipMode('pct10')}>10%</button>
-                  <button className="button secondary" style={isActiveStyle(tipMode === 'pct15')} onClick={() => setTipMode('pct15')}>15%</button>
-                  <button className="button secondary" style={isActiveStyle(tipMode === 'pct20')} onClick={() => setTipMode('pct20')}>20%</button>
-                  <button className="button secondary" style={isActiveStyle(tipMode === 'custom')} onClick={() => setTipMode('custom')}>Otro</button>
-                  <button className="button secondary" style={isActiveStyle(tipMode === 'none')} onClick={() => setTipMode('none')}>Sin</button>
+                <div style={{ fontWeight: 900 }}>Pagos</div>
+                <div className="muted" style={{ fontSize: 12 }}>
+                  Restante: <strong style={{ color: '#111827' }}>{money(Math.max(0, paySplitComputed.remainingBase))}</strong>
                 </div>
-                {tipMode === 'custom' ? (
-                  <>
-                    <div style={{ height: 10 }} />
-                    <input className="input" inputMode="decimal" placeholder="Propina (MXN)" value={tipCustom} onChange={(e) => setTipCustom(e.target.value)} />
-                  </>
-                ) : null}
+                <div style={{ height: 10 }} />
+
+                <div style={{ display: 'grid', gap: 8 }}>
+                  {paySplits.map((p, idx) => (
+                    <div key={idx} className="row" style={{ gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                      <select
+                        className="input"
+                        value={p.method}
+                        disabled={payBusy}
+                        onChange={(e) => {
+                          const v = e.target.value as any
+                          setPaySplits((prev) => prev.map((x, i) => (i === idx ? { ...x, method: v } : x)))
+                        }}
+                        style={{ width: 160 }}
+                      >
+                        <option value="efectivo">Efectivo</option>
+                        <option value="terminal">Terminal</option>
+                        <option value="transferencia">Transferencia</option>
+                      </select>
+                      <input
+                        className="input"
+                        inputMode="decimal"
+                        placeholder="Pago"
+                        value={p.amount}
+                        disabled={payBusy}
+                        onChange={(e) => setPaySplits((prev) => prev.map((x, i) => (i === idx ? { ...x, amount: e.target.value } : x)))}
+                        style={{ width: 160 }}
+                      />
+                      <input
+                        className="input"
+                        inputMode="decimal"
+                        placeholder="Propina"
+                        value={p.tip}
+                        disabled={payBusy}
+                        onChange={(e) => setPaySplits((prev) => prev.map((x, i) => (i === idx ? { ...x, tip: e.target.value } : x)))}
+                        style={{ width: 160 }}
+                      />
+                      <button
+                        className="button secondary"
+                        disabled={payBusy || paySplits.length <= 1}
+                        onClick={() => setPaySplits((prev) => prev.filter((_, i) => i !== idx))}
+                      >
+                        Quitar
+                      </button>
+                    </div>
+                  ))}
+
+                  <div>
+                    <button
+                      className="button secondary"
+                      disabled={payBusy}
+                      onClick={() => setPaySplits((prev) => [...prev, { method: 'efectivo', amount: '', tip: '' }])}
+                    >
+                      Agregar pago
+                    </button>
+                  </div>
+                </div>
               </div>
             ) : null}
 
@@ -2067,15 +2144,43 @@ export default function CajaPage() {
               disabled={payBusy}
               onClick={async () => {
                 const baseTotal = payComputed.baseTotal
-                const tip = payComputed.tip
-                const paidTotal = payComputed.paidTotal
+                const netBaseTotal = payComputed.netBaseTotal
+                const basePaidSum = paySplitComputed.basePaidSum
+                const tip = paySplitComputed.tipSum
+                const paidTotal = paySplitComputed.grandTotal
                 const courtesyName = String(payCourtesyName ?? '').trim()
                 if (payCourtesy && !courtesyName) {
                   setPayMsg('Ingresa el nombre de a quién se le da la cortesía.')
                   return
                 }
 
-                const effectiveMethod = payCourtesy && payCourtesyPct === 100 ? 'cortesia' : payMethod
+                if (!(payCourtesy && payCourtesyPct === 100)) {
+                  const diff = Math.abs(Math.round((netBaseTotal - basePaidSum) * 100) / 100)
+                  if (diff > 0.01) {
+                    setPayMsg(`Falta por cubrir ${money(Math.max(0, netBaseTotal - basePaidSum))} (solo base, sin propina).`)
+                    return
+                  }
+                }
+
+                const paidByMethod: any = {
+                  efectivo: Math.round(Number(paySplitComputed.basePaidByMethod.efectivo ?? 0) * 100) / 100,
+                  terminal: Math.round(Number(paySplitComputed.basePaidByMethod.terminal ?? 0) * 100) / 100,
+                  transferencia: Math.round(Number(paySplitComputed.basePaidByMethod.transferencia ?? 0) * 100) / 100,
+                  cortesia: payCourtesy && payCourtesyPct === 100 ? netBaseTotal : 0,
+                }
+                const tipByMethodOut: any = {
+                  efectivo: Math.round(Number(paySplitComputed.tipPaidByMethod.efectivo ?? 0) * 100) / 100,
+                  terminal: Math.round(Number(paySplitComputed.tipPaidByMethod.terminal ?? 0) * 100) / 100,
+                  transferencia: Math.round(Number(paySplitComputed.tipPaidByMethod.transferencia ?? 0) * 100) / 100,
+                }
+
+                const methodsUsed = ['efectivo', 'terminal', 'transferencia'].filter((m) => Number(paidByMethod[m] ?? 0) > 0)
+                const effectiveMethod: any =
+                  payCourtesy && payCourtesyPct === 100
+                    ? 'cortesia'
+                    : methodsUsed.length === 1
+                      ? methodsUsed[0]
+                      : 'mixed'
 
                 setPayBusy(true)
                 setPayMsg(null)
@@ -2092,6 +2197,8 @@ export default function CajaPage() {
                     courtesyName: payCourtesy ? courtesyName : null,
                     tipAmount: tip,
                     paidTotal,
+                    paidByMethod,
+                    tipByMethod: tipByMethodOut,
                     paidAt: serverTimestamp(),
                     paidByUid: user?.uid ?? null,
                     paidByName: user?.displayName ?? user?.email ?? null,

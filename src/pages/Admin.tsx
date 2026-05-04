@@ -618,6 +618,21 @@ export default function AdminPage() {
         const total = isPaid ? Number(t.paidTotal ?? t.total ?? 0) : Number(t.total ?? 0)
         sum += total
 
+        const pbm = isPaid ? ((t as any)?.paidByMethod as any) : null
+        const tbm = isPaid ? ((t as any)?.tipByMethod as any) : null
+        if (pbm && typeof pbm === 'object') {
+          byMethod.efectivo += Number(pbm.efectivo ?? 0)
+          byMethod.terminal += Number(pbm.terminal ?? 0)
+          byMethod.transferencia += Number(pbm.transferencia ?? 0)
+          byMethod.cortesia += Number(pbm.cortesia ?? 0)
+
+          if (tbm && typeof tbm === 'object') {
+            byMethod.propinaTerminal += Number(tbm.terminal ?? 0)
+            byMethod.propinaTransferencia += Number(tbm.transferencia ?? 0)
+          }
+          continue
+        }
+
         const tip = isPaid ? Number(t?.tipAmount ?? 0) : 0
         const tipOk = Number.isFinite(tip) && tip > 0 ? tip : 0
         const baseTotal = Math.max(0, total - tipOk)

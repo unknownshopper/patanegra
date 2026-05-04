@@ -228,6 +228,18 @@ a {
   color: rgba(255, 255, 255, 0.78);
 }
 
+.menuPublicoRoot .cartPanel {
+  color: #111827;
+}
+
+.menuPublicoRoot .cartPanel .muted {
+  color: #6b7280;
+}
+
+.menuPublicoRoot .cartPanel strong {
+  color: #111827;
+}
+
 .menuPublicoRoot .input {
   background: rgba(255, 255, 255, 0.92);
   border-color: rgba(255, 255, 255, 0.18);
@@ -253,6 +265,7 @@ a {
 
 .menuPublicoRoot .qtyValue {
   font-size: 13px;
+  color: rgba(255, 255, 255, 0.96);
 }
 
 .menuPublicoRoot .button.secondary {
