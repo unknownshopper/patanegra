@@ -557,6 +557,7 @@ export default function AdminPage() {
         sum: number
         byMethod: {
           efectivo: number
+          propinaEfectivo: number
           terminal: number
           propinaTerminal: number
           transferencia: number
@@ -571,28 +572,28 @@ export default function AdminPage() {
         tabs: [],
         topItems: [],
         sum: 0,
-        byMethod: { efectivo: 0, terminal: 0, propinaTerminal: 0, transferencia: 0, propinaTransferencia: 0, cortesia: 0, legacy: 0 },
+        byMethod: { efectivo: 0, propinaEfectivo: 0, terminal: 0, propinaTerminal: 0, transferencia: 0, propinaTransferencia: 0, cortesia: 0, legacy: 0 },
         dough: { cm30: 0, cm20: 0 },
       },
       week: {
         tabs: [],
         topItems: [],
         sum: 0,
-        byMethod: { efectivo: 0, terminal: 0, propinaTerminal: 0, transferencia: 0, propinaTransferencia: 0, cortesia: 0, legacy: 0 },
+        byMethod: { efectivo: 0, propinaEfectivo: 0, terminal: 0, propinaTerminal: 0, transferencia: 0, propinaTransferencia: 0, cortesia: 0, legacy: 0 },
         dough: { cm30: 0, cm20: 0 },
       },
       month: {
         tabs: [],
         topItems: [],
         sum: 0,
-        byMethod: { efectivo: 0, terminal: 0, propinaTerminal: 0, transferencia: 0, propinaTransferencia: 0, cortesia: 0, legacy: 0 },
+        byMethod: { efectivo: 0, propinaEfectivo: 0, terminal: 0, propinaTerminal: 0, transferencia: 0, propinaTransferencia: 0, cortesia: 0, legacy: 0 },
         dough: { cm30: 0, cm20: 0 },
       },
       range: {
         tabs: [],
         topItems: [],
         sum: 0,
-        byMethod: { efectivo: 0, terminal: 0, propinaTerminal: 0, transferencia: 0, propinaTransferencia: 0, cortesia: 0, legacy: 0 },
+        byMethod: { efectivo: 0, propinaEfectivo: 0, terminal: 0, propinaTerminal: 0, transferencia: 0, propinaTransferencia: 0, cortesia: 0, legacy: 0 },
         dough: { cm30: 0, cm20: 0 },
       },
     }
@@ -612,7 +613,7 @@ export default function AdminPage() {
         })
 
       let sum = 0
-      const byMethod = { efectivo: 0, terminal: 0, propinaTerminal: 0, transferencia: 0, propinaTransferencia: 0, cortesia: 0, legacy: 0 }
+      const byMethod = { efectivo: 0, propinaEfectivo: 0, terminal: 0, propinaTerminal: 0, transferencia: 0, propinaTransferencia: 0, cortesia: 0, legacy: 0 }
       for (const t of tabsInRange) {
         const isPaid = Boolean(t?.paidAt?.toMillis)
         const total = isPaid ? Number(t.paidTotal ?? t.total ?? 0) : Number(t.total ?? 0)
@@ -627,6 +628,7 @@ export default function AdminPage() {
           byMethod.cortesia += Number(pbm.cortesia ?? 0)
 
           if (tbm && typeof tbm === 'object') {
+            byMethod.propinaEfectivo += Number(tbm.efectivo ?? 0)
             byMethod.propinaTerminal += Number(tbm.terminal ?? 0)
             byMethod.propinaTransferencia += Number(tbm.transferencia ?? 0)
           }
@@ -655,6 +657,9 @@ export default function AdminPage() {
         } else if (m === 'transferencia') {
           byMethod.transferencia += baseTotal
           byMethod.propinaTransferencia += tipOk
+        } else if (m === 'efectivo') {
+          byMethod.efectivo += baseTotal
+          byMethod.propinaEfectivo += tipOk
         } else {
           ;(byMethod as any)[m] = Number((byMethod as any)[m] ?? 0) + total
         }
@@ -745,7 +750,7 @@ export default function AdminPage() {
         })
 
       let sum = 0
-      const byMethod = { efectivo: 0, terminal: 0, propinaTerminal: 0, transferencia: 0, propinaTransferencia: 0, cortesia: 0, legacy: 0 }
+      const byMethod = { efectivo: 0, propinaEfectivo: 0, terminal: 0, propinaTerminal: 0, transferencia: 0, propinaTransferencia: 0, cortesia: 0, legacy: 0 }
       for (const t of tabsInRange) {
         const isPaid = Boolean(t?.paidAt?.toMillis)
         const total = isPaid ? Number(t.paidTotal ?? t.total ?? 0) : Number(t.total ?? 0)
@@ -760,6 +765,7 @@ export default function AdminPage() {
           byMethod.cortesia += Number(pbm.cortesia ?? 0)
 
           if (tbm && typeof tbm === 'object') {
+            byMethod.propinaEfectivo += Number(tbm.efectivo ?? 0)
             byMethod.propinaTerminal += Number(tbm.terminal ?? 0)
             byMethod.propinaTransferencia += Number(tbm.transferencia ?? 0)
           }
@@ -788,6 +794,9 @@ export default function AdminPage() {
         } else if (m === 'transferencia') {
           byMethod.transferencia += baseTotal
           byMethod.propinaTransferencia += tipOk
+        } else if (m === 'efectivo') {
+          byMethod.efectivo += baseTotal
+          byMethod.propinaEfectivo += tipOk
         } else {
           ;(byMethod as any)[m] = Number((byMethod as any)[m] ?? 0) + total
         }
@@ -1963,6 +1972,9 @@ export default function AdminPage() {
                 Efectivo: <strong style={{ color: '#111827' }}>{money(reportDetails.day.byMethod.efectivo)}</strong>
               </div>
               <div className="muted" style={{ fontSize: 12 }}>
+                Propina efectivo: <strong style={{ color: '#111827' }}>{money(reportDetails.day.byMethod.propinaEfectivo)}</strong>
+              </div>
+              <div className="muted" style={{ fontSize: 12 }}>
                 Tarjeta: <strong style={{ color: '#111827' }}>{money(reportDetails.day.byMethod.terminal)}</strong>
               </div>
               <div className="muted" style={{ fontSize: 12 }}>
@@ -2012,6 +2024,9 @@ export default function AdminPage() {
                 Efectivo: <strong style={{ color: '#111827' }}>{money(reportDetails.week.byMethod.efectivo)}</strong>
               </div>
               <div className="muted" style={{ fontSize: 12 }}>
+                Propina efectivo: <strong style={{ color: '#111827' }}>{money(reportDetails.week.byMethod.propinaEfectivo)}</strong>
+              </div>
+              <div className="muted" style={{ fontSize: 12 }}>
                 Tarjeta: <strong style={{ color: '#111827' }}>{money(reportDetails.week.byMethod.terminal)}</strong>
               </div>
               <div className="muted" style={{ fontSize: 12 }}>
@@ -2059,6 +2074,9 @@ export default function AdminPage() {
               <div style={{ fontWeight: 950, fontSize: 22 }}>{money(report.monthSum)}</div>
               <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>
                 Efectivo: <strong style={{ color: '#111827' }}>{money(reportDetails.month.byMethod.efectivo)}</strong>
+              </div>
+              <div className="muted" style={{ fontSize: 12 }}>
+                Propina efectivo: <strong style={{ color: '#111827' }}>{money(reportDetails.month.byMethod.propinaEfectivo)}</strong>
               </div>
               <div className="muted" style={{ fontSize: 12 }}>
                 Tarjeta: <strong style={{ color: '#111827' }}>{money(reportDetails.month.byMethod.terminal)}</strong>
@@ -2117,6 +2135,9 @@ export default function AdminPage() {
               <div style={{ fontWeight: 950, fontSize: 22 }}>{money(reportDetails.range.sum)}</div>
               <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>
                 Efectivo: <strong style={{ color: '#111827' }}>{money(reportDetails.range.byMethod.efectivo)}</strong>
+              </div>
+              <div className="muted" style={{ fontSize: 12 }}>
+                Propina efectivo: <strong style={{ color: '#111827' }}>{money(reportDetails.range.byMethod.propinaEfectivo)}</strong>
               </div>
               <div className="muted" style={{ fontSize: 12 }}>
                 Tarjeta: <strong style={{ color: '#111827' }}>{money(reportDetails.range.byMethod.terminal)}</strong>
@@ -2232,6 +2253,10 @@ export default function AdminPage() {
                     <div className="row" style={{ justifyContent: 'space-between', padding: '6px 8px', borderRadius: 10, background: 'rgba(17,24,39,0.03)' }}>
                       <div className="muted" style={{ fontSize: 12 }}>Efectivo</div>
                       <div style={{ fontWeight: 950 }}>{money((reportEffectiveDetails?.byMethod ?? reportDetails[reportOpen].byMethod).efectivo)}</div>
+                    </div>
+                    <div className="row" style={{ justifyContent: 'space-between', padding: '6px 8px', borderRadius: 10 }}>
+                      <div className="muted" style={{ fontSize: 12 }}>Propina efectivo</div>
+                      <div style={{ fontWeight: 950 }}>{money((reportEffectiveDetails?.byMethod ?? reportDetails[reportOpen].byMethod).propinaEfectivo)}</div>
                     </div>
                     <div className="row" style={{ justifyContent: 'space-between', padding: '6px 8px', borderRadius: 10 }}>
                       <div className="muted" style={{ fontSize: 12 }}>Tarjeta</div>
