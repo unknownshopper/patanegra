@@ -555,6 +555,7 @@ export default function AdminPage() {
         tabs: any[]
         topItems: Array<{ name: string; qty: number }>
         sum: number
+        discountTotal: number
         byMethod: {
           efectivo: number
           propinaEfectivo: number
@@ -572,6 +573,7 @@ export default function AdminPage() {
         tabs: [],
         topItems: [],
         sum: 0,
+        discountTotal: 0,
         byMethod: { efectivo: 0, propinaEfectivo: 0, terminal: 0, propinaTerminal: 0, transferencia: 0, propinaTransferencia: 0, cortesia: 0, legacy: 0 },
         dough: { cm30: 0, cm20: 0 },
       },
@@ -579,6 +581,7 @@ export default function AdminPage() {
         tabs: [],
         topItems: [],
         sum: 0,
+        discountTotal: 0,
         byMethod: { efectivo: 0, propinaEfectivo: 0, terminal: 0, propinaTerminal: 0, transferencia: 0, propinaTransferencia: 0, cortesia: 0, legacy: 0 },
         dough: { cm30: 0, cm20: 0 },
       },
@@ -586,6 +589,7 @@ export default function AdminPage() {
         tabs: [],
         topItems: [],
         sum: 0,
+        discountTotal: 0,
         byMethod: { efectivo: 0, propinaEfectivo: 0, terminal: 0, propinaTerminal: 0, transferencia: 0, propinaTransferencia: 0, cortesia: 0, legacy: 0 },
         dough: { cm30: 0, cm20: 0 },
       },
@@ -593,6 +597,7 @@ export default function AdminPage() {
         tabs: [],
         topItems: [],
         sum: 0,
+        discountTotal: 0,
         byMethod: { efectivo: 0, propinaEfectivo: 0, terminal: 0, propinaTerminal: 0, transferencia: 0, propinaTransferencia: 0, cortesia: 0, legacy: 0 },
         dough: { cm30: 0, cm20: 0 },
       },
@@ -613,11 +618,17 @@ export default function AdminPage() {
         })
 
       let sum = 0
+      let discountTotal = 0
       const byMethod = { efectivo: 0, propinaEfectivo: 0, terminal: 0, propinaTerminal: 0, transferencia: 0, propinaTransferencia: 0, cortesia: 0, legacy: 0 }
       for (const t of tabsInRange) {
         const isPaid = Boolean(t?.paidAt?.toMillis)
         const total = isPaid ? Number(t.paidTotal ?? t.total ?? 0) : Number(t.total ?? 0)
         sum += total
+
+        if (isPaid) {
+          const d = Number((t as any)?.courtesyAmount ?? 0)
+          if (Number.isFinite(d) && d > 0) discountTotal += d
+        }
 
         const pbm = isPaid ? ((t as any)?.paidByMethod as any) : null
         const tbm = isPaid ? ((t as any)?.tipByMethod as any) : null
@@ -697,7 +708,7 @@ export default function AdminPage() {
         .sort((a, b) => b.qty - a.qty)
         .slice(0, 3)
 
-      byKey[key] = { tabs: tabsInRange, topItems, sum, byMethod, dough: { cm30: doughCm30, cm20: doughCm20 } }
+      byKey[key] = { tabs: tabsInRange, topItems, sum, discountTotal, byMethod, dough: { cm30: doughCm30, cm20: doughCm20 } }
     }
 
     compute('day', reportRanges.day.start, reportRanges.day.end)
@@ -750,11 +761,17 @@ export default function AdminPage() {
         })
 
       let sum = 0
+      let discountTotal = 0
       const byMethod = { efectivo: 0, propinaEfectivo: 0, terminal: 0, propinaTerminal: 0, transferencia: 0, propinaTransferencia: 0, cortesia: 0, legacy: 0 }
       for (const t of tabsInRange) {
         const isPaid = Boolean(t?.paidAt?.toMillis)
         const total = isPaid ? Number(t.paidTotal ?? t.total ?? 0) : Number(t.total ?? 0)
         sum += total
+
+        if (isPaid) {
+          const d = Number((t as any)?.courtesyAmount ?? 0)
+          if (Number.isFinite(d) && d > 0) discountTotal += d
+        }
 
         const pbm = isPaid ? ((t as any)?.paidByMethod as any) : null
         const tbm = isPaid ? ((t as any)?.tipByMethod as any) : null
@@ -834,7 +851,7 @@ export default function AdminPage() {
         .sort((a, b) => b.qty - a.qty || a.name.localeCompare(b.name))
         .slice(0, 3)
 
-      return { tabs: tabsInRange, topItems, sum, byMethod, dough: { cm30: doughCm30, cm20: doughCm20 } }
+      return { tabs: tabsInRange, topItems, sum, discountTotal, byMethod, dough: { cm30: doughCm30, cm20: doughCm20 } }
     },
     [reportOrders, paidOrLegacyTabs],
   )
@@ -1987,6 +2004,15 @@ export default function AdminPage() {
                 Propina transferencia: <strong style={{ color: '#111827' }}>{money(reportDetails.day.byMethod.propinaTransferencia)}</strong>
               </div>
               <div className="muted" style={{ fontSize: 12 }}>
+                Cortesía: <strong style={{ color: '#111827' }}>{money(reportDetails.day.byMethod.cortesia)}</strong>
+              </div>
+              <div className="muted" style={{ fontSize: 12 }}>
+                Descuentos/Cortesías (-): <strong style={{ color: '#111827' }}>-{money(reportDetails.day.discountTotal)}</strong>
+              </div>
+              <div className="muted" style={{ fontSize: 12 }}>
+                Otros: <strong style={{ color: '#111827' }}>{money(reportDetails.day.byMethod.legacy)}</strong>
+              </div>
+              <div className="muted" style={{ fontSize: 12 }}>
                 Masas 30: <strong style={{ color: '#111827' }}>{Number(reportDetails.day.dough.cm30 ?? 0)}</strong> · Masas 20:{' '}
                 <strong style={{ color: '#111827' }}>{Number(reportDetails.day.dough.cm20 ?? 0)}</strong>
               </div>
@@ -2039,6 +2065,15 @@ export default function AdminPage() {
                 Propina transferencia: <strong style={{ color: '#111827' }}>{money(reportDetails.week.byMethod.propinaTransferencia)}</strong>
               </div>
               <div className="muted" style={{ fontSize: 12 }}>
+                Cortesía: <strong style={{ color: '#111827' }}>{money(reportDetails.week.byMethod.cortesia)}</strong>
+              </div>
+              <div className="muted" style={{ fontSize: 12 }}>
+                Descuentos/Cortesías (-): <strong style={{ color: '#111827' }}>-{money(reportDetails.week.discountTotal)}</strong>
+              </div>
+              <div className="muted" style={{ fontSize: 12 }}>
+                Otros: <strong style={{ color: '#111827' }}>{money(reportDetails.week.byMethod.legacy)}</strong>
+              </div>
+              <div className="muted" style={{ fontSize: 12 }}>
                 Masas 30: <strong style={{ color: '#111827' }}>{Number(reportDetails.week.dough.cm30 ?? 0)}</strong> · Masas 20:{' '}
                 <strong style={{ color: '#111827' }}>{Number(reportDetails.week.dough.cm20 ?? 0)}</strong>
               </div>
@@ -2089,6 +2124,15 @@ export default function AdminPage() {
               </div>
               <div className="muted" style={{ fontSize: 12 }}>
                 Propina transferencia: <strong style={{ color: '#111827' }}>{money(reportDetails.month.byMethod.propinaTransferencia)}</strong>
+              </div>
+              <div className="muted" style={{ fontSize: 12 }}>
+                Cortesía: <strong style={{ color: '#111827' }}>{money(reportDetails.month.byMethod.cortesia)}</strong>
+              </div>
+              <div className="muted" style={{ fontSize: 12 }}>
+                Descuentos/Cortesías (-): <strong style={{ color: '#111827' }}>-{money(reportDetails.month.discountTotal)}</strong>
+              </div>
+              <div className="muted" style={{ fontSize: 12 }}>
+                Otros: <strong style={{ color: '#111827' }}>{money(reportDetails.month.byMethod.legacy)}</strong>
               </div>
               <div className="muted" style={{ fontSize: 12 }}>
                 Masas 30: <strong style={{ color: '#111827' }}>{Number(reportDetails.month.dough.cm30 ?? 0)}</strong> · Masas 20:{' '}
@@ -2150,6 +2194,15 @@ export default function AdminPage() {
               </div>
               <div className="muted" style={{ fontSize: 12 }}>
                 Propina transferencia: <strong style={{ color: '#111827' }}>{money(reportDetails.range.byMethod.propinaTransferencia)}</strong>
+              </div>
+              <div className="muted" style={{ fontSize: 12 }}>
+                Cortesía: <strong style={{ color: '#111827' }}>{money(reportDetails.range.byMethod.cortesia)}</strong>
+              </div>
+              <div className="muted" style={{ fontSize: 12 }}>
+                Descuentos/Cortesías (-): <strong style={{ color: '#111827' }}>-{money(reportDetails.range.discountTotal)}</strong>
+              </div>
+              <div className="muted" style={{ fontSize: 12 }}>
+                Otros: <strong style={{ color: '#111827' }}>{money(reportDetails.range.byMethod.legacy)}</strong>
               </div>
               <div className="muted" style={{ fontSize: 12 }}>
                 Masas 30: <strong style={{ color: '#111827' }}>{Number(reportDetails.range.dough.cm30 ?? 0)}</strong> · Masas 20:{' '}
@@ -2273,6 +2326,18 @@ export default function AdminPage() {
                     <div className="row" style={{ justifyContent: 'space-between', padding: '6px 8px', borderRadius: 10, background: 'rgba(17,24,39,0.03)' }}>
                       <div className="muted" style={{ fontSize: 12 }}>Propina transferencia</div>
                       <div style={{ fontWeight: 950 }}>{money((reportEffectiveDetails?.byMethod ?? reportDetails[reportOpen].byMethod).propinaTransferencia)}</div>
+                    </div>
+                    <div className="row" style={{ justifyContent: 'space-between', padding: '6px 8px', borderRadius: 10 }}>
+                      <div className="muted" style={{ fontSize: 12 }}>Cortesía</div>
+                      <div style={{ fontWeight: 950 }}>{money((reportEffectiveDetails?.byMethod ?? reportDetails[reportOpen].byMethod).cortesia)}</div>
+                    </div>
+                    <div className="row" style={{ justifyContent: 'space-between', padding: '6px 8px', borderRadius: 10, background: 'rgba(17,24,39,0.03)' }}>
+                      <div className="muted" style={{ fontSize: 12 }}>Otros</div>
+                      <div style={{ fontWeight: 950 }}>{money((reportEffectiveDetails?.byMethod ?? reportDetails[reportOpen].byMethod).legacy)}</div>
+                    </div>
+                    <div className="row" style={{ justifyContent: 'space-between', padding: '6px 8px', borderRadius: 10 }}>
+                      <div className="muted" style={{ fontSize: 12 }}>Descuentos/Cortesías (-)</div>
+                      <div style={{ fontWeight: 950 }}>-{money((reportEffectiveDetails as any)?.discountTotal ?? reportDetails[reportOpen].discountTotal ?? 0)}</div>
                     </div>
                     <div className="row" style={{ justifyContent: 'space-between', padding: '6px 8px', borderRadius: 10 }}>
                       <div className="muted" style={{ fontSize: 12 }}>Masas 30</div>
