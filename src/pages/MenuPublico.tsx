@@ -183,26 +183,33 @@ export default function MenuPublicoPage() {
 
   const publicHiddenItem = React.useCallback(
     (it: any) => {
+      if (isStaff) return false
       const norm = (s: any) => String(s ?? '').toLowerCase().normalize('NFD').replace(/\p{Diacritic}/gu, '')
       const name = norm(it?.name)
       if (!name) return false
       if (name.includes('mezcal')) return true
+      if (name.includes('mojito')) return true
+      if (name.includes('limonada electrica') || name.includes('limonada electríca')) return true
       if (name.includes('tinto de verano')) return true
-      if (name.includes('sangria en vaso') || name.includes('sangria vaso')) return true
+      if (name.includes('sangria')) return true
       return false
     },
-    [],
+    [isStaff],
   )
 
   const publicHiddenCategory = React.useCallback(
     (catName: any) => {
+      if (isStaff) return false
       const n = String(catName ?? '').toLowerCase().normalize('NFD').replace(/\p{Diacritic}/gu, '')
       if (!n) return false
       if (n.includes('jarra')) return true
       if (n.includes('mezcal')) return true
+      if (n.includes('mezcalita')) return true
+      if (n.includes('sangria')) return true
+      if (n.includes('tinto de verano')) return true
       return false
     },
-    [],
+    [isStaff],
   )
 
   const menuLoading = !catsLoaded || !itemsLoaded
