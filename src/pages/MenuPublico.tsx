@@ -189,7 +189,10 @@ export default function MenuPublicoPage() {
       if (!name) return false
       if (name.includes('mezcal')) return true
       if (name.includes('mojito')) return true
-      if (name.includes('limonada electrica') || name.includes('limonada electríca')) return true
+      if (name.includes('limonada electrica') || name.includes('limonada electríca')) {
+        if (name.includes('mocktail')) return false
+        return true
+      }
       if (name.includes('tinto de verano')) return true
       if (name.includes('sangria')) return true
       return false

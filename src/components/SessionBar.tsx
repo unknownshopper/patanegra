@@ -1,6 +1,24 @@
 import React from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../auth/AuthProvider'
+import { collection, doc, limit, onSnapshot, orderBy, query, serverTimestamp, updateDoc, where } from 'firebase/firestore'
+import { db } from '../firebase'
+
+function tableLabel(tableId: string) {
+  if (tableId.startsWith('togo-')) {
+    const raw = tableId.replace('togo-', '').trim()
+    const n = Number(raw)
+    return Number.isFinite(n) && n > 0 ? `Para llevar #${n}` : 'Para llevar'
+  }
+  if (tableId.startsWith('mesa-')) {
+    const raw = tableId.replace('mesa-', '').trim()
+    const n = Number(raw)
+    return Number.isFinite(n) && n > 0 ? `Mesa ${n}` : tableId
+  }
+  const n = Number(tableId)
+  if (Number.isFinite(n) && n > 0) return `Mesa ${n}`
+  return tableId
+}
 
 type Props = {
   title: string
@@ -20,6 +38,10 @@ export default function SessionBar({
   autoHideOnScroll = false,
 }: Props) {
   const { user, logout } = useAuth()
+
+  const [waiterCallTop, setWaiterCallTop] = React.useState<any | null>(null)
+  const [waiterCallOpen, setWaiterCallOpen] = React.useState(false)
+  const lastWaiterCallIdRef = React.useRef<string>('')
 
   const [hidden, setHidden] = React.useState(false)
   const lastYRef = React.useRef(0)
@@ -50,6 +72,39 @@ export default function SessionBar({
     return () => window.removeEventListener('scroll', onScroll)
   }, [autoHideOnScroll])
 
+  React.useEffect(() => {
+    if (!user?.role) {
+      setWaiterCallTop(null)
+      setWaiterCallOpen(false)
+      return
+    }
+
+    const key = 'staff:lastSeenWaiterCallId'
+    lastWaiterCallIdRef.current = String(localStorage.getItem(key) ?? '')
+
+    const q = query(collection(db, 'waiterCalls'), where('status', '==', 'pending'), orderBy('createdAt', 'desc'), limit(1))
+    return onSnapshot(
+      q,
+      (snap) => {
+        const d = snap.docs[0]
+        if (!d) {
+          setWaiterCallTop(null)
+          setWaiterCallOpen(false)
+          return
+        }
+        const data = { id: d.id, ...(d.data() as any) }
+        setWaiterCallTop(data)
+        if (String(data.id) && String(data.id) !== String(lastWaiterCallIdRef.current)) {
+          setWaiterCallOpen(true)
+        }
+      },
+      () => {
+        setWaiterCallTop(null)
+        setWaiterCallOpen(false)
+      },
+    )
+  }, [user?.role])
+
   return (
     <div className={hidden ? 'topbar topbarAutoHide topbarHidden' : autoHideOnScroll ? 'topbar topbarAutoHide' : 'topbar'}>
       <div className="topbarLeft">
@@ -62,6 +117,47 @@ export default function SessionBar({
       </div>
 
       <div className="row topbarRight" style={{ justifyContent: 'flex-end' }}>
+        {waiterCallOpen && waiterCallTop ? (
+          <div className="waiterAlert" style={{ cursor: 'pointer' }}>
+            <span style={{ fontWeight: 800 }}>Llamando:</span> <span>{tableLabel(String((waiterCallTop as any)?.tableId ?? ''))}</span>
+            <button
+              className="button"
+              style={{ marginLeft: 8, padding: '4px 10px' }}
+              onClick={async () => {
+                try {
+                  if (!user?.uid) return
+                  await updateDoc(doc(db, 'waiterCalls', String((waiterCallTop as any)?.id ?? '')), {
+                    status: 'acknowledged',
+                    ackByUid: user.uid,
+                    ackAt: serverTimestamp(),
+                  })
+                  const key = 'staff:lastSeenWaiterCallId'
+                  const id = String((waiterCallTop as any)?.id ?? '')
+                  lastWaiterCallIdRef.current = id
+                  localStorage.setItem(key, id)
+                  setWaiterCallOpen(false)
+                } catch {
+                  // ignore
+                }
+              }}
+            >
+              Atender
+            </button>
+            <button
+              className="button secondary"
+              style={{ marginLeft: 6, padding: '4px 10px' }}
+              onClick={() => {
+                const key = 'staff:lastSeenWaiterCallId'
+                const id = String((waiterCallTop as any)?.id ?? '')
+                lastWaiterCallIdRef.current = id
+                localStorage.setItem(key, id)
+                setWaiterCallOpen(false)
+              }}
+            >
+              Ocultar
+            </button>
+          </div>
+        ) : null}
         {rightSlot ?? null}
         {showMenuButton ? (
           <Link className="button secondary" to={menuHref}>
