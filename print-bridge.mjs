@@ -257,10 +257,12 @@ function consumptionTicketText({ tab, orders, folio }) {
       if (!nm || !Number.isFinite(qty) || qty <= 0) continue
       const size = it?.size === 'cm20' ? '20' : it?.size === 'cm30' ? '30' : null
       const label = size ? `${nm} (${size})` : nm
-      const unit = Number(it?.unitPrice ?? 0)
       qtyByLabel.set(label, (qtyByLabel.get(label) ?? 0) + qty)
-      if (Number.isFinite(unit) && unit > 0) {
-        amtByLabel.set(label, Math.round(((amtByLabel.get(label) ?? 0) + unit * qty) * 100) / 100)
+      const lineTotal = Number(it?.lineTotal ?? 0)
+      const unit = Number(it?.unitPrice ?? 0)
+      const amount = Number.isFinite(lineTotal) && lineTotal > 0 ? lineTotal : Number.isFinite(unit) && unit > 0 ? unit * qty : 0
+      if (Number.isFinite(amount) && amount > 0) {
+        amtByLabel.set(label, Math.round(((amtByLabel.get(label) ?? 0) + amount) * 100) / 100)
       }
     }
   }
@@ -440,9 +442,11 @@ function receiptText(tab) {
   const mesa = tableLabel(tableId)
   const name = String(tab?.tabName ?? '').trim()
   const subtotal = Number(tab?.total ?? 0)
+  const discount = Number(tab?.courtesyAmount ?? 0)
+  const netSubtotal = Math.max(0, Math.round((subtotal - (Number.isFinite(discount) ? discount : 0)) * 100) / 100)
   const method = String(tab?.paymentMethod ?? '').trim() || '—'
   const tip = Number(tab?.tipAmount ?? 0)
-  const total = Number(tab?.paidTotal ?? subtotal)
+  const total = Number(tab?.paidTotal ?? Math.round((netSubtotal + (Number.isFinite(tip) ? tip : 0)) * 100) / 100)
   const paidAtMs = tab?.paidAt?.toMillis ? tab.paidAt.toMillis() : tab?.closedAt?.toMillis ? tab.closedAt.toMillis() : Date.now()
   const paidAtStr = formatDateTime(paidAtMs)
 
@@ -457,7 +461,10 @@ function receiptText(tab) {
   if (name) lines.push(name)
   if (paidAtStr) lines.push(paidAtStr)
   lines.push('--------------------------------')
-  lines.push(`Consumo: ${money(subtotal)}`)
+  lines.push(`Consumo: ${money(netSubtotal)}`)
+  if (Number.isFinite(discount) && discount > 0.009) {
+    lines.push(`Descuento: -${money(discount)}`)
+  }
   lines.push(`Propina: ${money(tip)}`)
   lines.push(`Total:   ${money(total)}`)
   lines.push(`Pago:    ${method}`)

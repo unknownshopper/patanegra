@@ -4,7 +4,6 @@ import {
   collection,
   getDoc,
   getDocs,
-  limit,
   onSnapshot,
   orderBy,
   query,
@@ -287,23 +286,32 @@ export default function CajaPage() {
     const key = 'caja:lastSeenWaiterCallId'
     lastWaiterCallIdRef.current = String(localStorage.getItem(key) ?? '')
 
-    const q = query(collection(db, 'waiterCalls'), where('status', '==', 'pending'), orderBy('createdAt', 'desc'), limit(1))
+    const q = query(collection(db, 'waiterCalls'), where('status', '==', 'pending'))
     return onSnapshot(
       q,
       (snap) => {
-        const d = snap.docs[0]
-        if (!d) {
+        const docs = snap.docs
+          .map((d) => ({ id: d.id, ...(d.data() as any) }))
+          .sort((a, b) => {
+            const am = a?.createdAt?.toMillis ? a.createdAt.toMillis() : Number(a?.createdAt ?? 0)
+            const bm = b?.createdAt?.toMillis ? b.createdAt.toMillis() : Number(b?.createdAt ?? 0)
+            return bm - am
+          })
+
+        const top = docs[0] ?? null
+        if (!top) {
           setWaiterCallTop(null)
           setWaiterCallOpen(false)
           return
         }
-        const data = { id: d.id, ...(d.data() as any) }
-        setWaiterCallTop(data)
-        if (String(data.id) && String(data.id) !== String(lastWaiterCallIdRef.current)) {
+
+        setWaiterCallTop(top)
+        if (String(top.id) && String(top.id) !== String(lastWaiterCallIdRef.current)) {
           setWaiterCallOpen(true)
         }
       },
-      () => {
+      (err) => {
+        console.error('[Caja] waiterCalls snapshot error', err)
         setWaiterCallTop(null)
         setWaiterCallOpen(false)
       },
@@ -1002,23 +1010,41 @@ export default function CajaPage() {
 
       {waiterCallOpen && waiterCallTop ? (
         <div
-          className="card"
+          role="dialog"
+          aria-modal="true"
           style={{
-            margin: '0 0 12px 0',
-            borderColor: 'rgba(239, 68, 68, 0.35)',
-            background: 'rgba(239, 68, 68, 0.06)',
+            position: 'fixed',
+            inset: 0,
+            zIndex: 9999,
+            background: 'rgba(185, 28, 28, 0.96)',
+            color: 'white',
+            display: 'grid',
+            placeItems: 'center',
+            padding: 18,
           }}
         >
-          <div className="row" style={{ justifyContent: 'space-between', alignItems: 'flex-start' }}>
-            <div>
-              <div style={{ fontWeight: 950 }}>Llamado de mesero</div>
-              <div className="muted" style={{ fontSize: 12 }}>
-                {tableLabel(String((waiterCallTop as any)?.tableId ?? ''))} · Cliente solicita mesero
-              </div>
+          <div style={{ width: 'min(860px, 100%)' }}>
+            <div style={{ fontSize: 56, fontWeight: 1000, letterSpacing: -1, lineHeight: 1.02 }}>LLAMADO DE MESERO</div>
+            <div style={{ height: 10 }} />
+            <div style={{ fontSize: 44, fontWeight: 950, lineHeight: 1.06 }}>
+              {tableLabel(String((waiterCallTop as any)?.tableId ?? ''))}
             </div>
-            <div className="row" style={{ gap: 8, justifyContent: 'flex-end' }}>
+            <div style={{ height: 10 }} />
+            <div style={{ fontSize: 18, opacity: 0.95 }}>Cliente solicita mesero</div>
+
+            <div style={{ height: 18 }} />
+
+            <div className="row" style={{ gap: 12, justifyContent: 'flex-start', flexWrap: 'wrap' }}>
               <button
                 className="button"
+                style={{
+                  background: 'white',
+                  color: '#7f1d1d',
+                  borderColor: 'rgba(255,255,255,0.0)',
+                  fontSize: 20,
+                  padding: '12px 18px',
+                  fontWeight: 900,
+                }}
                 onClick={async () => {
                   try {
                     if (!user?.uid) return
@@ -1041,6 +1067,14 @@ export default function CajaPage() {
               </button>
               <button
                 className="button secondary"
+                style={{
+                  background: 'transparent',
+                  color: 'white',
+                  borderColor: 'rgba(255,255,255,0.55)',
+                  fontSize: 18,
+                  padding: '12px 18px',
+                  fontWeight: 850,
+                }}
                 onClick={() => {
                   const key = 'caja:lastSeenWaiterCallId'
                   const id = String((waiterCallTop as any)?.id ?? '')
@@ -1679,7 +1713,7 @@ export default function CajaPage() {
                               }
                             }}
                           >
-                            Pedir cuenta
+                            {(t as any)?.billPrintedAt?.toMillis || (t as any)?.billPrintedAt != null ? 'Reimprimir consumo' : 'Imprimir consumo'}
                           </button>
                           <button
                             className="button secondary"
@@ -1936,7 +1970,9 @@ export default function CajaPage() {
                                     }
                                   }}
                                 >
-                                  Pedir cuenta
+                                  {(t as any)?.billPrintedAt?.toMillis || (t as any)?.billPrintedAt != null
+                                    ? 'Reimprimir consumo'
+                                    : 'Imprimir consumo'}
                                 </button>
                                 <button
                                   className="button secondary"

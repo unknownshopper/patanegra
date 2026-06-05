@@ -728,6 +728,27 @@ export default function AdminPage() {
     return { week, month }
   }, [now])
 
+  const reportDayBaseSumByStartMs = React.useMemo(() => {
+    const out = new Map<number, number>()
+    for (const t of paidOrLegacyTabs) {
+      const isPaid = Boolean(t?.paidAt?.toMillis)
+      const paidAtMs = t?.paidAt?.toMillis ? t.paidAt.toMillis() : null
+      const legacyAtMs = t?.closedAt?.toMillis ? t.closedAt.toMillis() : null
+      const atMs = paidAtMs ?? legacyAtMs
+      if (atMs == null) continue
+
+      const dt = new Date(atMs)
+      const dayStartMs = new Date(dt.getFullYear(), dt.getMonth(), dt.getDate(), 0, 0, 0, 0).getTime()
+
+      const paidTotal = isPaid ? Number((t as any)?.paidTotal ?? (t as any)?.total ?? 0) : Number((t as any)?.total ?? 0)
+      const tip = isPaid ? Number((t as any)?.tipAmount ?? 0) : 0
+      const base = Math.max(0, Math.round((paidTotal - tip) * 100) / 100)
+
+      out.set(dayStartMs, Math.round(((out.get(dayStartMs) ?? 0) + base) * 100) / 100)
+    }
+    return out
+  }, [paidOrLegacyTabs])
+
   React.useEffect(() => {
     if (!reportOpen) {
       setReportDayMs(null)
@@ -2282,6 +2303,7 @@ export default function AdminPage() {
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 8 }}>
                       {(reportOpen === 'week' ? reportDayOptions.week : reportDayOptions.month).map((ms) => {
                         const active = reportDayMs === ms
+                        const dayBase = reportDayBaseSumByStartMs.get(ms) ?? 0
                         return (
                           <button
                             key={ms}
@@ -2290,6 +2312,7 @@ export default function AdminPage() {
                             onClick={() => setReportDayMs(ms)}
                           >
                             <span>{new Date(ms).toLocaleDateString('es-MX', { weekday: reportOpen === 'week' ? 'short' : undefined, day: '2-digit', month: '2-digit' })}</span>
+                            <span style={{ fontWeight: 900 }}>{money(Number(dayBase ?? 0))}</span>
                           </button>
                         )
                       })}

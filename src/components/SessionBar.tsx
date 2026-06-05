@@ -1,7 +1,7 @@
 import React from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../auth/AuthProvider'
-import { collection, doc, limit, onSnapshot, orderBy, query, serverTimestamp, updateDoc, where } from 'firebase/firestore'
+import { collection, doc, onSnapshot, query, serverTimestamp, updateDoc, where } from 'firebase/firestore'
 import { db } from '../firebase'
 
 function tableLabel(tableId: string) {
@@ -82,23 +82,32 @@ export default function SessionBar({
     const key = 'staff:lastSeenWaiterCallId'
     lastWaiterCallIdRef.current = String(localStorage.getItem(key) ?? '')
 
-    const q = query(collection(db, 'waiterCalls'), where('status', '==', 'pending'), orderBy('createdAt', 'desc'), limit(1))
+    const q = query(collection(db, 'waiterCalls'), where('status', '==', 'pending'))
     return onSnapshot(
       q,
       (snap) => {
-        const d = snap.docs[0]
-        if (!d) {
+        const docs = snap.docs
+          .map((d) => ({ id: d.id, ...(d.data() as any) }))
+          .sort((a, b) => {
+            const am = a?.createdAt?.toMillis ? a.createdAt.toMillis() : Number(a?.createdAt ?? 0)
+            const bm = b?.createdAt?.toMillis ? b.createdAt.toMillis() : Number(b?.createdAt ?? 0)
+            return bm - am
+          })
+
+        const top = docs[0] ?? null
+        if (!top) {
           setWaiterCallTop(null)
           setWaiterCallOpen(false)
           return
         }
-        const data = { id: d.id, ...(d.data() as any) }
-        setWaiterCallTop(data)
-        if (String(data.id) && String(data.id) !== String(lastWaiterCallIdRef.current)) {
+
+        setWaiterCallTop(top)
+        if (String(top.id) && String(top.id) !== String(lastWaiterCallIdRef.current)) {
           setWaiterCallOpen(true)
         }
       },
-      () => {
+      (err) => {
+        console.error('[SessionBar] waiterCalls snapshot error', err)
         setWaiterCallTop(null)
         setWaiterCallOpen(false)
       },
