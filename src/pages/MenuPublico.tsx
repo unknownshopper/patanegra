@@ -650,13 +650,27 @@ export default function MenuPublicoPage() {
   }, [openTakeoutTabs])
   const openTakeoutTableIds = React.useMemo(() => new Set(Object.keys(takeoutLabelById)), [takeoutLabelById])
   const rawTableId = (searchParams.get('mesa') ?? '').trim()
+  const normalizedMesaParam = React.useMemo(() => {
+    const s = String(rawTableId ?? '').trim()
+    if (!s) return ''
+    if (/^mesa-\d{2}$/.test(s)) return s
+    if (/^\d{1,2}$/.test(s)) {
+      const n = Number(s)
+      if (Number.isFinite(n) && n > 0) return `mesa-${String(n).padStart(2, '0')}`
+    }
+    if (/^mesa-\d{1,2}$/.test(s)) {
+      const n = Number(s.replace('mesa-', ''))
+      if (Number.isFinite(n) && n > 0) return `mesa-${String(n).padStart(2, '0')}`
+    }
+    return s
+  }, [rawTableId])
   const wantsTakeout = String(searchParams.get('togo') ?? '').trim() === '1' || rawTableId === TAKEOUT_VALUE
   const tableId = wantsTakeout
     ? TAKEOUT_VALUE
-    : allowedTables.includes(rawTableId)
-      ? rawTableId
-      : openTakeoutTableIds.has(rawTableId)
-        ? rawTableId
+    : allowedTables.includes(normalizedMesaParam)
+      ? normalizedMesaParam
+      : openTakeoutTableIds.has(normalizedMesaParam)
+        ? normalizedMesaParam
         : null
   const tableLabel = tableId
     ? tableId === TAKEOUT_VALUE

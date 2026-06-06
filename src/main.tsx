@@ -29,11 +29,72 @@ function ScrollToTopFab() {
   )
 }
 
+function AutoReloadOnNewBuild() {
+  React.useEffect(() => {
+    if (!import.meta.env.PROD) return
+
+    const getActiveModuleSrc = () => {
+      const el = document.querySelector('script[type="module"][src]') as HTMLScriptElement | null
+      const src = el?.getAttribute('src') ?? ''
+      try {
+        return src ? new URL(src, window.location.origin).toString() : ''
+      } catch {
+        return src
+      }
+    }
+
+    let activeSrc = getActiveModuleSrc()
+    let stopped = false
+
+    const check = async () => {
+      if (stopped) return
+      try {
+        const res = await fetch(window.location.pathname + window.location.search, {
+          cache: 'no-store',
+          headers: {
+            'Cache-Control': 'no-cache',
+            Pragma: 'no-cache',
+          },
+        })
+
+        if (!res.ok) return
+        const html = await res.text()
+        const doc = new DOMParser().parseFromString(html, 'text/html')
+        const el = doc.querySelector('script[type="module"][src]') as HTMLScriptElement | null
+        const nextSrcRaw = el?.getAttribute('src') ?? ''
+        if (!nextSrcRaw) return
+        const nextSrc = new URL(nextSrcRaw, window.location.origin).toString()
+
+        if (!activeSrc) activeSrc = getActiveModuleSrc()
+        if (activeSrc && nextSrc && activeSrc !== nextSrc) {
+          window.location.reload()
+        }
+      } catch {
+        // ignore
+      }
+    }
+
+    const intervalMs = 45_000
+    const t = window.setInterval(() => {
+      void check()
+    }, intervalMs)
+    void check()
+
+    return () => {
+      stopped = true
+      window.clearInterval(t)
+    }
+  }, [])
+
+  return null
+}
+
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <BrowserRouter>
       <AuthProvider>
         <App />
+        <AutoReloadOnNewBuild />
         <ScrollToTopFab />
         <div className="appFooter">
           <a
