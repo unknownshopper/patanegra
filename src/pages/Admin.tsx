@@ -311,15 +311,16 @@ export default function AdminPage() {
     ensureMeta('property', 'og:description').setAttribute('content', desc)
   }, [])
 
-  const initialView = ((): 'dashboard' | 'tables' | 'editor' | 'report' => {
+  const initialView = ((): 'dashboard' | 'tables' | 'editor' | 'report' | 'waiter-usage' => {
     const v = String(searchParams.get('v') ?? '').toLowerCase()
     if (v === 'editor' || v === 'menu') return 'editor'
     if (v === 'tables' || v === 'mesas') return 'tables'
     if (v === 'report' || v === 'reporte') return 'report'
+    if (v === 'waiter-usage' || v === 'uso-mesero' || v === 'uso-mesero-boton' || v === 'mesero-uso') return 'waiter-usage'
     return 'dashboard'
   })()
 
-  const [view, setView] = React.useState<'dashboard' | 'tables' | 'editor' | 'report'>(initialView)
+  const [view, setView] = React.useState<'dashboard' | 'tables' | 'editor' | 'report' | 'waiter-usage'>(initialView)
   const [categories, setCategories] = React.useState<Category[]>([])
   const [items, setItems] = React.useState<Item[]>([])
   const [extras, setExtras] = React.useState<MenuExtra[]>([])
@@ -347,6 +348,15 @@ export default function AdminPage() {
   const [reportTabs, setReportTabs] = React.useState<any[]>([])
   const [reportOrders, setReportOrders] = React.useState<any[]>([])
   const [reportLoadedAtMs, setReportLoadedAtMs] = React.useState<number | null>(null)
+
+  const [waiterUsageDays, setWaiterUsageDays] = React.useState(30)
+  const [waiterUsageBusy, setWaiterUsageBusy] = React.useState(false)
+  const [waiterUsageLoadedAtMs, setWaiterUsageLoadedAtMs] = React.useState<number | null>(null)
+  const [waiterUsageWeek, setWaiterUsageWeek] = React.useState<{ mesa05: number; mesa06: number; mesa07: number; total: number } | null>(null)
+  const [waiterUsageMonth, setWaiterUsageMonth] = React.useState<{ mesa05: number; mesa06: number; mesa07: number; total: number } | null>(null)
+  const [waiterUsageRows, setWaiterUsageRows] = React.useState<Array<{ dayStartMs: number; mesa05: number; mesa06: number; mesa07: number; total: number }>>(
+    [],
+  )
 
   React.useEffect(() => {
     const t = window.setInterval(() => setNow(Date.now()), 15_000)
@@ -1227,16 +1237,118 @@ export default function AdminPage() {
 
   React.useEffect(() => {
     const v = String(searchParams.get('v') ?? '').toLowerCase()
-    const next: 'dashboard' | 'tables' | 'editor' | 'report' =
+    const next: 'dashboard' | 'tables' | 'editor' | 'report' | 'waiter-usage' =
       v === 'editor' || v === 'menu'
         ? 'editor'
         : v === 'tables' || v === 'mesas'
           ? 'tables'
           : v === 'report' || v === 'reporte'
             ? 'report'
-            : 'dashboard'
+            : v === 'waiter-usage' || v === 'uso-mesero' || v === 'uso-mesero-boton' || v === 'mesero-uso'
+              ? 'waiter-usage'
+              : 'dashboard'
     setView(next)
   }, [searchParams])
+
+  React.useEffect(() => {
+    if (view !== 'waiter-usage') return
+    if (waiterUsageBusy) return
+
+    const nowMs = Date.now()
+    if (waiterUsageLoadedAtMs != null && nowMs - waiterUsageLoadedAtMs < 60_000) return
+
+    let cancelled = false
+    setWaiterUsageBusy(true)
+    ;(async () => {
+      try {
+        const dayMs = 24 * 60 * 60 * 1000
+        const d = new Date(nowMs)
+        const todayStart = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0, 0).getTime()
+        const weekStartDate = new Date(d)
+        const day = weekStartDate.getDay()
+        const diff = (day + 6) % 7
+        weekStartDate.setDate(weekStartDate.getDate() - diff)
+        weekStartDate.setHours(0, 0, 0, 0)
+        const weekStartMs = weekStartDate.getTime()
+        const monthStartMs = new Date(d.getFullYear(), d.getMonth(), 1, 0, 0, 0, 0).getTime()
+
+        const startMs = Math.min(
+          todayStart - (Math.max(1, waiterUsageDays) - 1) * dayMs,
+          weekStartMs,
+          monthStartMs,
+        )
+        const sinceTs = Timestamp.fromMillis(startMs)
+
+        const snap = await getDocs(query(collection(db, 'waiterCalls'), where('createdAt', '>=', sinceTs), orderBy('createdAt', 'desc'), limit(2500)))
+        if (cancelled) return
+
+        const mesa05 = 'mesa-05'
+        const mesa06 = 'mesa-06'
+        const mesa07 = 'mesa-07'
+
+        const weekAgg = { mesa05: 0, mesa06: 0, mesa07: 0, total: 0 }
+        const monthAgg = { mesa05: 0, mesa06: 0, mesa07: 0, total: 0 }
+
+        const byDay = new Map<number, { mesa05: number; mesa06: number; mesa07: number }>()
+        for (const docSnap of snap.docs) {
+          const data = docSnap.data() as any
+          const tableId = String(data?.tableId ?? '').trim()
+          if (tableId !== mesa05 && tableId !== mesa06 && tableId !== mesa07) continue
+          const ms = toMillisMaybe(data?.createdAt)
+          if (ms == null) continue
+          if (ms < startMs) continue
+
+          if (ms >= weekStartMs) {
+            if (tableId === mesa05) weekAgg.mesa05 += 1
+            if (tableId === mesa06) weekAgg.mesa06 += 1
+            if (tableId === mesa07) weekAgg.mesa07 += 1
+            weekAgg.total += 1
+          }
+          if (ms >= monthStartMs) {
+            if (tableId === mesa05) monthAgg.mesa05 += 1
+            if (tableId === mesa06) monthAgg.mesa06 += 1
+            if (tableId === mesa07) monthAgg.mesa07 += 1
+            monthAgg.total += 1
+          }
+
+          const dt = new Date(ms)
+          const dayStartMs = new Date(dt.getFullYear(), dt.getMonth(), dt.getDate(), 0, 0, 0, 0).getTime()
+          const cur = byDay.get(dayStartMs) ?? { mesa05: 0, mesa06: 0, mesa07: 0 }
+          if (tableId === mesa05) cur.mesa05 += 1
+          if (tableId === mesa06) cur.mesa06 += 1
+          if (tableId === mesa07) cur.mesa07 += 1
+          byDay.set(dayStartMs, cur)
+        }
+
+        const rows: Array<{ dayStartMs: number; mesa05: number; mesa06: number; mesa07: number; total: number }> = []
+        for (let i = 0; i < waiterUsageDays; i++) {
+          const dayStartMs = todayStart - i * dayMs
+          const v = byDay.get(dayStartMs) ?? { mesa05: 0, mesa06: 0, mesa07: 0 }
+          const total = v.mesa05 + v.mesa06 + v.mesa07
+          rows.push({ dayStartMs, mesa05: v.mesa05, mesa06: v.mesa06, mesa07: v.mesa07, total })
+        }
+
+        if (cancelled) return
+        setWaiterUsageWeek(weekAgg)
+        setWaiterUsageMonth(monthAgg)
+        setWaiterUsageRows(rows)
+        setWaiterUsageLoadedAtMs(nowMs)
+      } catch {
+        if (cancelled) return
+        setWaiterUsageWeek(null)
+        setWaiterUsageMonth(null)
+        setWaiterUsageRows([])
+        setWaiterUsageLoadedAtMs(Date.now())
+      } finally {
+        if (cancelled) return
+        setWaiterUsageBusy(false)
+      }
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [view, waiterUsageDays, waiterUsageLoadedAtMs])
 
   const mesaTableIds = React.useMemo(() => {
     return Array.from({ length: 10 }, (_, i) => `mesa-${String(i + 1).padStart(2, '0')}`)
@@ -1471,6 +1583,19 @@ export default function AdminPage() {
             >
               Reporte
             </button>
+
+            {user?.role === 'admin' ? (
+              <button
+                className="button secondary"
+                style={isActiveStyle(view === 'waiter-usage')}
+                onClick={() => {
+                  setView('waiter-usage')
+                  navigate('/admin?v=waiter-usage')
+                }}
+              >
+                Uso botón mesero
+              </button>
+            ) : null}
             <button className="button secondary" onClick={() => navigate('/almacen')}>
               Almacén
             </button>
@@ -1710,6 +1835,114 @@ export default function AdminPage() {
               <div className="muted" style={{ fontSize: 12 }}>Mes</div>
               <div style={{ fontWeight: 950, fontSize: 22 }}>{money(report.monthSum)}</div>
             </div>
+          </div>
+        </div>
+      ) : null}
+
+      {view === 'waiter-usage' ? (
+        <div className="card" style={{ marginBottom: 12 }}>
+          <div className="row" style={{ justifyContent: 'space-between', alignItems: 'flex-start' }}>
+            <div>
+              <div style={{ fontWeight: 900 }}>Uso del botón “Llamar al mesero”</div>
+              <div className="muted" style={{ fontSize: 12 }}>
+                Conteo por día (Mesas 5, 6 y 7).
+              </div>
+            </div>
+
+            <div className="row" style={{ gap: 8, alignItems: 'center' }}>
+              <select
+                value={waiterUsageDays}
+                onChange={(e) => {
+                  const n = Number(e.target.value)
+                  setWaiterUsageLoadedAtMs(null)
+                  setWaiterUsageDays(Number.isFinite(n) && n > 0 ? n : 30)
+                }}
+              >
+                <option value={7}>7 días</option>
+                <option value={14}>14 días</option>
+                <option value={30}>30 días</option>
+                <option value={60}>60 días</option>
+              </select>
+              <button
+                className="button secondary"
+                disabled={waiterUsageBusy}
+                onClick={() => {
+                  setWaiterUsageLoadedAtMs(null)
+                }}
+              >
+                Actualizar
+              </button>
+            </div>
+          </div>
+
+          <div style={{ height: 12 }} />
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12, marginBottom: 12 }}>
+            <div className="card" style={{ margin: 0 }}>
+              <div className="muted" style={{ fontSize: 12 }}>Total semana (lun-dom)</div>
+              <div style={{ fontWeight: 950, fontSize: 24 }}>{waiterUsageWeek ? waiterUsageWeek.total : '—'}</div>
+              {waiterUsageWeek ? (
+                <div className="muted" style={{ fontSize: 12 }}>
+                  Mesa 5: <strong style={{ color: '#111827' }}>{waiterUsageWeek.mesa05}</strong> · Mesa 6:{' '}
+                  <strong style={{ color: '#111827' }}>{waiterUsageWeek.mesa06}</strong> · Mesa 7:{' '}
+                  <strong style={{ color: '#111827' }}>{waiterUsageWeek.mesa07}</strong>
+                </div>
+              ) : null}
+            </div>
+
+            <div className="card" style={{ margin: 0 }}>
+              <div className="muted" style={{ fontSize: 12 }}>Total mes</div>
+              <div style={{ fontWeight: 950, fontSize: 24 }}>{waiterUsageMonth ? waiterUsageMonth.total : '—'}</div>
+              {waiterUsageMonth ? (
+                <div className="muted" style={{ fontSize: 12 }}>
+                  Mesa 5: <strong style={{ color: '#111827' }}>{waiterUsageMonth.mesa05}</strong> · Mesa 6:{' '}
+                  <strong style={{ color: '#111827' }}>{waiterUsageMonth.mesa06}</strong> · Mesa 7:{' '}
+                  <strong style={{ color: '#111827' }}>{waiterUsageMonth.mesa07}</strong>
+                </div>
+              ) : null}
+            </div>
+          </div>
+
+          <div className="card" style={{ margin: 0, padding: 12 }}>
+            {waiterUsageBusy ? <div className="muted">Cargando…</div> : null}
+            {!waiterUsageBusy && waiterUsageRows.length === 0 ? <div className="muted">Sin datos.</div> : null}
+
+            {!waiterUsageBusy && waiterUsageRows.length ? (
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 520 }}>
+                  <thead>
+                    <tr>
+                      <th style={{ textAlign: 'left', padding: '8px 6px', fontSize: 12 }} className="muted">
+                        Día
+                      </th>
+                      <th style={{ textAlign: 'right', padding: '8px 6px', fontSize: 12 }} className="muted">
+                        Mesa 5
+                      </th>
+                      <th style={{ textAlign: 'right', padding: '8px 6px', fontSize: 12 }} className="muted">
+                        Mesa 6
+                      </th>
+                      <th style={{ textAlign: 'right', padding: '8px 6px', fontSize: 12 }} className="muted">
+                        Mesa 7
+                      </th>
+                      <th style={{ textAlign: 'right', padding: '8px 6px', fontSize: 12 }} className="muted">
+                        Total
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {waiterUsageRows.map((r) => (
+                      <tr key={r.dayStartMs} style={{ borderTop: '1px solid rgba(17,24,39,0.08)' }}>
+                        <td style={{ padding: '8px 6px' }}>{new Date(r.dayStartMs).toLocaleDateString('es-MX')}</td>
+                        <td style={{ padding: '8px 6px', textAlign: 'right', fontWeight: 800 }}>{r.mesa05}</td>
+                        <td style={{ padding: '8px 6px', textAlign: 'right', fontWeight: 800 }}>{r.mesa06}</td>
+                        <td style={{ padding: '8px 6px', textAlign: 'right', fontWeight: 800 }}>{r.mesa07}</td>
+                        <td style={{ padding: '8px 6px', textAlign: 'right', fontWeight: 950 }}>{r.total}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : null}
           </div>
         </div>
       ) : null}
