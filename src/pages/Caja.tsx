@@ -1065,26 +1065,6 @@ export default function CajaPage() {
               >
                 Atender
               </button>
-              <button
-                className="button secondary"
-                style={{
-                  background: 'transparent',
-                  color: 'white',
-                  borderColor: 'rgba(255,255,255,0.55)',
-                  fontSize: 18,
-                  padding: '12px 18px',
-                  fontWeight: 850,
-                }}
-                onClick={() => {
-                  const key = 'caja:lastSeenWaiterCallId'
-                  const id = String((waiterCallTop as any)?.id ?? '')
-                  lastWaiterCallIdRef.current = id
-                  localStorage.setItem(key, id)
-                  setWaiterCallOpen(false)
-                }}
-              >
-                Cerrar
-              </button>
             </div>
           </div>
         </div>

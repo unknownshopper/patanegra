@@ -628,6 +628,11 @@ export default function MenuPublicoPage() {
     'mesa-08': 'Mesa 8',
     'mesa-09': 'Mesa 9',
     'mesa-10': 'Mesa 10',
+    'mesa-11': 'Mesa 11',
+    'mesa-12': 'Mesa 12',
+    'mesa-13': 'Mesa 13',
+    'mesa-14': 'Mesa 14',
+    'mesa-15': 'Mesa 15',
   }
 
   const allowedTables = Object.keys(tableLabelById)

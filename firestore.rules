@@ -49,7 +49,8 @@ rules_version = '2';
      function isValidTableId(tableId) {
       return tableId in [
         'mesa-01','mesa-02','mesa-03','mesa-04','mesa-05',
-        'mesa-06','mesa-07','mesa-08','mesa-09','mesa-10'
+        'mesa-06','mesa-07','mesa-08','mesa-09','mesa-10',
+        'mesa-11','mesa-12','mesa-13','mesa-14','mesa-15'
       ];
     }
 
