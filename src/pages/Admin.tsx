@@ -51,6 +51,16 @@ type MenuExtra = {
   isActive: boolean
 }
 
+type BridgeStatus = {
+  id: string
+  deviceName?: string
+  status?: string
+  lastSeenAt?: any
+  lastSeenMs?: number
+  pid?: number
+  printers?: any
+}
+
 function hasSizes(it: Item) {
   return typeof it.prices?.cm20 === 'number' || typeof it.prices?.cm30 === 'number'
 }
@@ -358,6 +368,13 @@ export default function AdminPage() {
     [],
   )
 
+  const [bridges, setBridges] = React.useState<BridgeStatus[]>([])
+  const [selectedBridgeId, setSelectedBridgeId] = React.useState<string>('')
+  const [bridgeCmdBusy, setBridgeCmdBusy] = React.useState(false)
+  const [bridgeCmdMsg, setBridgeCmdMsg] = React.useState<string | null>(null)
+
+  const selectedBridge = React.useMemo(() => bridges.find((b) => b.id === selectedBridgeId) ?? null, [bridges, selectedBridgeId])
+
   React.useEffect(() => {
     const t = window.setInterval(() => setNow(Date.now()), 15_000)
     return () => window.clearInterval(t)
@@ -377,6 +394,57 @@ export default function AdminPage() {
       },
     )
   }, [])
+
+  React.useEffect(() => {
+    const q = query(collection(db, 'ops'))
+    return onSnapshot(
+      q,
+      (snap) => {
+        const next: BridgeStatus[] = []
+        for (const d of snap.docs) {
+          if (!String(d.id).startsWith('bridge_')) continue
+          next.push({ id: d.id, ...(d.data() as any) })
+        }
+        next.sort((a, b) => {
+          const am = Number(a?.lastSeenMs ?? (a?.lastSeenAt?.toMillis ? a.lastSeenAt.toMillis() : 0) ?? 0)
+          const bm = Number(b?.lastSeenMs ?? (b?.lastSeenAt?.toMillis ? b.lastSeenAt.toMillis() : 0) ?? 0)
+          return bm - am
+        })
+        setBridges(next)
+        setSelectedBridgeId((prev) => prev || next[0]?.id || '')
+      },
+      () => {
+        setBridges([])
+      },
+    )
+  }, [])
+
+  const bridgeRestart = React.useCallback(async () => {
+    if (!user?.uid) return
+    if (!selectedBridgeId) return
+    const deviceKey = String(selectedBridgeId).replace('bridge_', '')
+    if (!deviceKey) return
+    setBridgeCmdBusy(true)
+    setBridgeCmdMsg(null)
+    try {
+      await setDoc(
+        doc(db, 'ops', `bridgeCmd_${deviceKey}`),
+        {
+          action: 'restart',
+          requestedAt: serverTimestamp(),
+          requestedAtMs: Date.now(),
+          requestedByUid: user.uid,
+          requestedByName: user.displayName ?? user.email ?? null,
+        },
+        { merge: true },
+      )
+      setBridgeCmdMsg('Comando enviado. El bridge reiniciará (PM2) en unos segundos.')
+    } catch {
+      setBridgeCmdMsg('No se pudo enviar el comando. Revisa permisos o conexión.')
+    } finally {
+      setBridgeCmdBusy(false)
+    }
+  }, [selectedBridgeId, user?.displayName, user?.email, user?.uid])
 
   React.useEffect(() => {
     const needsReportData = view === 'report' || Boolean(reportOpen)
@@ -1630,6 +1698,89 @@ export default function AdminPage() {
               <div className="muted" style={{ fontSize: 12 }}>Órdenes pendientes (Barra)</div>
               <div style={{ fontWeight: 950, fontSize: 22 }}>{pendingBar}</div>
             </div>
+
+            {user?.role === 'admin' ? (
+              <div className="card" style={{ margin: 0 }}>
+                <div className="muted" style={{ fontSize: 12 }}>Print bridge</div>
+                <div style={{ height: 8 }} />
+                <select value={selectedBridgeId} onChange={(e) => setSelectedBridgeId(e.target.value)} style={{ width: '100%' }}>
+                  <option value="">(Selecciona)</option>
+                  {bridges.map((b) => {
+                    const dn = String(b?.deviceName ?? '').trim() || b.id
+                    const ms = Number(b?.lastSeenMs ?? (b?.lastSeenAt?.toMillis ? b.lastSeenAt.toMillis() : 0) ?? 0)
+                    const age = ms ? Math.max(0, Math.round((Date.now() - ms) / 60000)) : null
+                    const status = String(b?.status ?? '').trim() || '—'
+                    const label = age != null ? `${dn} · ${status} · ${age}m` : `${dn} · ${status}`
+                    return (
+                      <option key={b.id} value={b.id}>
+                        {label}
+                      </option>
+                    )
+                  })}
+                </select>
+
+                <div style={{ height: 10 }} />
+
+                <div style={{ display: 'grid', gap: 6 }}>
+                  {(() => {
+                    const ph = (selectedBridge as any)?.printerHealth as any
+                    const mkDot = (ok: boolean | null) => {
+                      const color = ok === true ? '#16a34a' : ok === false ? '#ef4444' : '#9ca3af'
+                      return (
+                        <span
+                          style={{
+                            display: 'inline-block',
+                            width: 10,
+                            height: 10,
+                            borderRadius: 999,
+                            background: color,
+                            boxShadow: '0 0 0 2px rgba(17,24,39,0.06) inset',
+                          }}
+                        />
+                      )
+                    }
+
+                    const kitchenOk = typeof ph?.kitchen?.ok === 'boolean' ? (ph.kitchen.ok as boolean) : ph?.kitchen?.ok ?? null
+                    const barOk = typeof ph?.bar?.ok === 'boolean' ? (ph.bar.ok as boolean) : ph?.bar?.ok ?? null
+
+                    return (
+                      <>
+                        <div className="row" style={{ justifyContent: 'space-between' }}>
+                          <div className="muted" style={{ fontSize: 12 }}>
+                            Cocina
+                          </div>
+                          <div className="row" style={{ gap: 8 }}>
+                            {mkDot(kitchenOk)}
+                            <div className="muted" style={{ fontSize: 12 }}>
+                              {kitchenOk === true ? 'Conectado' : kitchenOk === false ? 'Sin conexión' : '—'}
+                            </div>
+                          </div>
+                        </div>
+                        <div className="row" style={{ justifyContent: 'space-between' }}>
+                          <div className="muted" style={{ fontSize: 12 }}>
+                            Caja
+                          </div>
+                          <div className="row" style={{ gap: 8 }}>
+                            {mkDot(barOk)}
+                            <div className="muted" style={{ fontSize: 12 }}>{barOk === true ? 'Conectado' : barOk === false ? 'Sin conexión' : '—'}</div>
+                          </div>
+                        </div>
+                      </>
+                    )
+                  })()}
+                </div>
+
+                <div style={{ height: 8 }} />
+                <button className="button secondary" disabled={bridgeCmdBusy || !selectedBridgeId} onClick={bridgeRestart} style={{ width: '100%' }}>
+                  Reiniciar conectividad
+                </button>
+                {bridgeCmdMsg ? (
+                  <div className="muted" style={{ fontSize: 12, marginTop: 8 }}>
+                    {bridgeCmdMsg}
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
             {user?.role === 'admin' || user?.role === 'piso' ? (
               <div className="card" style={{ margin: 0 }}>
                 <div className="muted" style={{ fontSize: 12 }}>Pendientes</div>

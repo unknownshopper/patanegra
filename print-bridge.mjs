@@ -82,6 +82,21 @@ async function printViaSocket({ host, port, payload }) {
   })
 }
 
+async function checkSocketReachable({ host, port }) {
+  return new Promise((resolve) => {
+    const socket = net.createConnection({ host, port }, () => {
+      socket.end()
+      resolve(true)
+    })
+    socket.setTimeout(1200)
+    socket.on('timeout', () => {
+      socket.destroy()
+      resolve(false)
+    })
+    socket.on('error', () => resolve(false))
+  })
+}
+
 function loadDotEnvIfPresent() {
   try {
     const candidates = []
@@ -579,6 +594,44 @@ async function main() {
   const heartbeatEveryMsN = Number(heartbeatEveryMsRaw)
   const heartbeatEveryMs = Number.isFinite(heartbeatEveryMsN) ? Math.max(10_000, Math.trunc(heartbeatEveryMsN)) : 30_000
 
+  let lastPrinterHealthAtMs = 0
+  let lastPrinterHealth = null
+  const printerHealthEveryMsRaw = env('PRINTER_HEALTH_EVERY_MS', '60000')
+  const printerHealthEveryMsN = Number(printerHealthEveryMsRaw)
+  const printerHealthEveryMs = Number.isFinite(printerHealthEveryMsN) ? Math.max(10_000, Math.trunc(printerHealthEveryMsN)) : 60_000
+
+  const computePrinterHealth = async () => {
+    const out = {}
+    const entries = [
+      ['kitchen', outPrinters.kitchen],
+      ['bar', outPrinters.bar],
+      ['receipt', outPrinters.receipt],
+    ]
+    for (const [key, printer] of entries) {
+      const deviceUri = await resolvePrinterDevice(printer)
+      const sock = parseSocketUri(deviceUri)
+      if (!sock) {
+        out[key] = {
+          printer,
+          deviceUri: deviceUri ?? null,
+          ok: null,
+          checkedAtMs: Date.now(),
+        }
+        continue
+      }
+      const ok = await checkSocketReachable({ host: sock.host, port: sock.port })
+      out[key] = {
+        printer,
+        deviceUri: deviceUri ?? null,
+        host: sock.host,
+        port: sock.port,
+        ok,
+        checkedAtMs: Date.now(),
+      }
+    }
+    return out
+  }
+
   const sendHeartbeat = async (extra = {}) => {
     try {
       await setDoc(
@@ -602,11 +655,75 @@ async function main() {
     }
   }
 
-  await sendHeartbeat({ startedAt: serverTimestamp() })
+  try {
+    lastPrinterHealth = await computePrinterHealth()
+    lastPrinterHealthAtMs = Date.now()
+  } catch {
+    lastPrinterHealth = null
+    lastPrinterHealthAtMs = Date.now()
+  }
+
+  await sendHeartbeat({ startedAt: serverTimestamp(), printerHealth: lastPrinterHealth })
   const heartbeatTimer = setInterval(() => {
     console.log(`[print-bridge] heartbeat device=${deviceName} pid=${process.pid}`)
-    void sendHeartbeat()
+    void (async () => {
+      const now = Date.now()
+      if (now - lastPrinterHealthAtMs >= printerHealthEveryMs) {
+        try {
+          lastPrinterHealth = await computePrinterHealth()
+        } catch {
+          lastPrinterHealth = lastPrinterHealth ?? null
+        } finally {
+          lastPrinterHealthAtMs = now
+        }
+      }
+      await sendHeartbeat({ printerHealth: lastPrinterHealth })
+    })()
   }, heartbeatEveryMs)
+
+  const deviceKey = String(deviceName || 'device').replaceAll(/[^a-zA-Z0-9_-]/g, '_')
+  const cmdRef = doc(db, 'ops', `bridgeCmd_${deviceKey}`)
+  let lastCmdRequestedAtMs = 0
+  let unsubCmd = null
+
+  unsubCmd = onSnapshot(
+    cmdRef,
+    async (snap) => {
+      try {
+        const data = snap.exists() ? snap.data() : null
+        const action = String(data?.action ?? '').trim().toLowerCase()
+        const reqMs =
+          toMillisMaybe(data?.requestedAt) ??
+          (Number.isFinite(Number(data?.requestedAtMs)) ? Number(data?.requestedAtMs) : null) ??
+          0
+        if (!action || !reqMs) return
+        if (reqMs <= lastCmdRequestedAtMs) return
+        lastCmdRequestedAtMs = reqMs
+
+        if (action === 'restart') {
+          console.log('[print-bridge] Command: restart requested')
+          try {
+            await updateDoc(cmdRef, {
+              handledAt: serverTimestamp(),
+              handledAtMs: Date.now(),
+              handledByPid: process.pid,
+              handledByDevice: deviceName,
+              handledStatus: 'restarting',
+            })
+          } catch {
+            // ignore
+          }
+          setTimeout(() => process.exit(0), 250)
+        }
+      } catch (e) {
+        console.log('[print-bridge] Command handler error:', String((e && e.message) || e || 'cmd error'))
+      }
+    },
+    (err) => {
+      console.error('[print-bridge] Command snapshot error', err)
+      noteUnavailable(err, 'cmd')
+    },
+  )
 
   const inFlightOrders = new Set()
   const inFlightReceipts = new Set()
@@ -939,6 +1056,7 @@ async function main() {
       if (unsubOrders) unsubOrders()
       if (unsubReceipts) unsubReceipts()
       if (unsubBills) unsubBills()
+      if (unsubCmd) unsubCmd()
     } catch {
       // ignore
     }
