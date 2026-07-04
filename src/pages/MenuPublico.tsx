@@ -145,7 +145,7 @@ export default function MenuPublicoPage() {
   const [menuExtras, setMenuExtras] = useState<any[]>([])
   const [qtyByItemId, setQtyByItemId] = useState<Record<string, number>>({})
   const [selectionCfgByInstanceId, setSelectionCfgByInstanceId] = useState<
-    Record<string, { size: PizzaSize | null; halfOtherItemId: string | null; note: string; extras: string[] }>
+    Record<string, { size: PizzaSize | null; halfOtherItemId: string | null; note: string; extras: Record<string, number> }>
   >({})
   const [cartLines, setCartLines] = useState<
     Array<{
@@ -155,7 +155,7 @@ export default function MenuPublicoPage() {
       size: PizzaSize | null
       halfOtherItemId: string | null
       note: string | null
-      extras: string[]
+      extras: Record<string, number>
     }>
   >([])
   const [cartOpen, setCartOpen] = useState(false)
@@ -242,12 +242,13 @@ export default function MenuPublicoPage() {
     )
   }, [])
 
-  const toggleExtraForSelectionInstance = React.useCallback((instanceId: string, extraName: string) => {
+  const changeExtraQtyForSelectionInstance = React.useCallback((instanceId: string, extraName: string, delta: number) => {
     setSelectionCfgByInstanceId((prev) => {
-      const cur = prev[instanceId] ?? { size: null, halfOtherItemId: null, note: '', extras: [] }
-      const list = Array.isArray(cur.extras) ? cur.extras : []
-      const has = list.includes(extraName)
-      const extras = has ? list.filter((x) => x !== extraName) : [...list, extraName]
+      const cur = prev[instanceId] ?? { size: null, halfOtherItemId: null, note: '', extras: {} }
+      const extras = typeof cur.extras === 'object' && cur.extras ? { ...(cur.extras as any) } : {}
+      const next = Math.max(0, Math.trunc(Number(extras[extraName] ?? 0) + delta))
+      if (next <= 0) delete extras[extraName]
+      else extras[extraName] = next
       return { ...prev, [instanceId]: { ...cur, extras } }
     })
   }, [])
@@ -459,12 +460,15 @@ export default function MenuPublicoPage() {
     [extraPriceByName],
   )
 
-  const toggleExtraForCartLine = React.useCallback((lineId: string, extraName: string) => {
+  const changeExtraQtyForCartLine = React.useCallback((lineId: string, extraName: string, delta: number) => {
     setCartLines((prev) =>
       prev.map((l) => {
         if (l.lineId !== lineId) return l
-        const has = l.extras.includes(extraName)
-        return { ...l, extras: has ? l.extras.filter((x) => x !== extraName) : [...l.extras, extraName] }
+        const extras = typeof l.extras === 'object' && l.extras ? { ...(l.extras as any) } : {}
+        const next = Math.max(0, Math.trunc(Number(extras[extraName] ?? 0) + delta))
+        if (next <= 0) delete extras[extraName]
+        else extras[extraName] = next
+        return { ...l, extras }
       }),
     )
   }, [])
@@ -548,7 +552,11 @@ export default function MenuPublicoPage() {
   }
 
   const selectionInstances = useMemo(() => {
-    const out: Array<{ instanceId: string; item: Item; cfg: { size: PizzaSize | null; halfOtherItemId: string | null; note: string; extras: string[] } }> = []
+    const out: Array<{
+      instanceId: string
+      item: Item
+      cfg: { size: PizzaSize | null; halfOtherItemId: string | null; note: string; extras: Record<string, number> }
+    }> = []
     for (const [itemId, qty] of Object.entries(qtyByItemId)) {
       const it = itemById.get(itemId)
       if (!it) continue
@@ -561,7 +569,7 @@ export default function MenuPublicoPage() {
           size: itemHasSizes(it) ? (cur?.size ?? 'cm30') : null,
           halfOtherItemId: itemHasSizes(it) ? (cur?.halfOtherItemId ?? null) : null,
           note: String(cur?.note ?? ''),
-          extras: Array.isArray(cur?.extras) ? cur.extras : [],
+          extras: typeof cur?.extras === 'object' && cur?.extras ? (cur.extras as any) : {},
         }
         out.push({ instanceId, item: it, cfg })
       }
@@ -583,7 +591,7 @@ export default function MenuPublicoPage() {
           size: s.cfg.size,
           halfOtherItemId: s.cfg.halfOtherItemId,
           note,
-          extras: s.cfg.extras,
+          extras: { ...(s.cfg.extras ?? {}) },
         })
       }
       return next
@@ -1250,13 +1258,16 @@ export default function MenuPublicoPage() {
                         {(() => {
                           const groups = extrasGroupsForItem(s.item)
                           if (!groups.length) return null
+                          const extrasMap =
+                            typeof (selectionCfgByInstanceId[s.instanceId] as any)?.extras === 'object' && (selectionCfgByInstanceId[s.instanceId] as any)?.extras
+                              ? ((selectionCfgByInstanceId[s.instanceId] as any).extras as Record<string, number>)
+                              : (s.cfg.extras ?? {})
+                          const extrasCount = Object.values(extrasMap).reduce((sum: number, n: any) => sum + (Number(n) || 0), 0)
                           return (
                             <details>
                               <summary className="muted" style={{ fontSize: 12, cursor: 'pointer' }}>
                                 Extras
-                                {Array.isArray(selectionCfgByInstanceId[s.instanceId]?.extras) && (selectionCfgByInstanceId[s.instanceId]?.extras ?? []).length
-                                  ? ` · ${(selectionCfgByInstanceId[s.instanceId]?.extras ?? []).length}`
-                                  : ''}
+                                {extrasCount ? ` · ${extrasCount}` : ''}
                               </summary>
                               <div style={{ height: 6 }} />
                               <div style={{ display: 'grid', gap: 10 }}>
@@ -1264,17 +1275,36 @@ export default function MenuPublicoPage() {
                                   <div key={g.label}>
                                     <div className="muted" style={{ fontSize: 12, marginBottom: 6 }}>{g.label}</div>
                                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 6 }}>
-                                      {g.items.map((x) => (
-                                        <label key={x.name} className="row" style={{ gap: 8, alignItems: 'center' }}>
-                                          <input
-                                            type="checkbox"
-                                            checked={Boolean((selectionCfgByInstanceId[s.instanceId]?.extras ?? s.cfg.extras).includes(x.name))}
-                                            onChange={() => toggleExtraForSelectionInstance(s.instanceId, x.name)}
-                                          />
-                                          <span style={{ fontSize: 12 }}>{x.name}</span>
-                                          <span className="muted" style={{ fontSize: 12 }}>+{money(x.unitPrice)}</span>
-                                        </label>
-                                      ))}
+                                      {g.items.map((x) => {
+                                        const curQty = Number(extrasMap?.[x.name] ?? 0)
+                                        return (
+                                          <div key={x.name} className="row" style={{ gap: 8, alignItems: 'center', justifyContent: 'space-between' }}>
+                                            <div style={{ display: 'grid' }}>
+                                              <span style={{ fontSize: 12 }}>{x.name}</span>
+                                              <span className="muted" style={{ fontSize: 12 }}>+{money(x.unitPrice)}</span>
+                                            </div>
+                                            <div className="row" style={{ gap: 6 }}>
+                                              <button
+                                                type="button"
+                                                className="button secondary"
+                                                style={{ padding: '4px 10px' }}
+                                                onClick={() => changeExtraQtyForSelectionInstance(s.instanceId, x.name, -1)}
+                                              >
+                                                −
+                                              </button>
+                                              <div style={{ minWidth: 18, textAlign: 'center', fontWeight: 900 }}>{curQty}</div>
+                                              <button
+                                                type="button"
+                                                className="button secondary"
+                                                style={{ padding: '4px 10px' }}
+                                                onClick={() => changeExtraQtyForSelectionInstance(s.instanceId, x.name, +1)}
+                                              >
+                                                +
+                                              </button>
+                                            </div>
+                                          </div>
+                                        )
+                                      })}
                                     </div>
                                   </div>
                                 ))}
@@ -1366,8 +1396,9 @@ export default function MenuPublicoPage() {
                   const item = itemById.get(l.itemId)
                   if (!item) return null
                   const qty = Number(l.qty ?? 0)
-                  const extrasCount = Array.isArray(l.extras) ? l.extras.length : 0
-                  const extrasTotal = extrasCount > 0 ? l.extras.reduce((s, nm) => s + extraUnitPrice(String(nm)) * qty, 0) : 0
+                  const extrasMap = typeof l.extras === 'object' && l.extras ? (l.extras as Record<string, number>) : {}
+                  const extrasCount = Object.values(extrasMap).reduce((sum: number, n: any) => sum + (Number(n) || 0), 0)
+                  const extrasTotal = Object.entries(extrasMap).reduce((sum: number, [nm, n]) => sum + extraUnitPrice(String(nm)) * (Number(n) || 0) * qty, 0)
                   return (
                     <div key={l.lineId} className="cartLine">
                       <div>
@@ -1402,17 +1433,36 @@ export default function MenuPublicoPage() {
                                   <div key={g.label}>
                                     <div className="muted" style={{ fontSize: 12, marginBottom: 6 }}>{g.label}</div>
                                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 6 }}>
-                                      {g.items.map((x) => (
-                                        <label key={x.name} className="row" style={{ gap: 8, alignItems: 'center' }}>
-                                          <input
-                                            type="checkbox"
-                                            checked={Boolean((l.extras ?? []).includes(x.name))}
-                                            onChange={() => toggleExtraForCartLine(l.lineId, x.name)}
-                                          />
-                                          <span style={{ fontSize: 12 }}>{x.name}</span>
-                                          <span className="muted" style={{ fontSize: 12 }}>+{money(x.unitPrice)}</span>
-                                        </label>
-                                      ))}
+                                      {g.items.map((x) => {
+                                        const curQty = Number(extrasMap?.[x.name] ?? 0)
+                                        return (
+                                          <div key={x.name} className="row" style={{ gap: 8, alignItems: 'center', justifyContent: 'space-between' }}>
+                                            <div style={{ display: 'grid' }}>
+                                              <span style={{ fontSize: 12 }}>{x.name}</span>
+                                              <span className="muted" style={{ fontSize: 12 }}>+{money(x.unitPrice)}</span>
+                                            </div>
+                                            <div className="row" style={{ gap: 6 }}>
+                                              <button
+                                                type="button"
+                                                className="button secondary"
+                                                style={{ padding: '4px 10px' }}
+                                                onClick={() => changeExtraQtyForCartLine(l.lineId, x.name, -1)}
+                                              >
+                                                −
+                                              </button>
+                                              <div style={{ minWidth: 18, textAlign: 'center', fontWeight: 900 }}>{curQty}</div>
+                                              <button
+                                                type="button"
+                                                className="button secondary"
+                                                style={{ padding: '4px 10px' }}
+                                                onClick={() => changeExtraQtyForCartLine(l.lineId, x.name, +1)}
+                                              >
+                                                +
+                                              </button>
+                                            </div>
+                                          </div>
+                                        )
+                                      })}
                                     </div>
                                   </div>
                                 ))}
@@ -1498,7 +1548,7 @@ export default function MenuPublicoPage() {
                   size: s.cfg.size,
                   halfOtherItemId: s.cfg.halfOtherItemId,
                   note: String(s.cfg.note ?? '').trim() || null,
-                  extras: s.cfg.extras,
+                  extras: { ...(s.cfg.extras ?? {}) },
                 }))
 
                 const cartResolved = [...cartLines, ...selectionAsCartLines]
@@ -1514,11 +1564,12 @@ export default function MenuPublicoPage() {
                 const boxQty = isTakeoutOrder ? pizzasQty : 0
                 const boxTotal = boxQty > 0 ? Math.round(boxQty * 5 * 100) / 100 : 0
                 const extrasTotalAll = cartResolved.reduce((sum, l) => {
-                  const extrasCount = Array.isArray((l.line as any)?.extras) ? (l.line as any).extras.length : 0
-                  if (!extrasCount) return sum
                   const qty = Number((l.line as any)?.qty ?? 0)
-                  const extras = Array.isArray((l.line as any)?.extras) ? (l.line as any).extras : []
-                  return sum + extras.reduce((s: number, nm: string) => s + extraUnitPrice(String(nm)) * qty, 0)
+                  const extras = typeof (l.line as any)?.extras === 'object' && (l.line as any)?.extras ? ((l.line as any).extras as Record<string, number>) : {}
+                  return (
+                    sum +
+                    Object.entries(extras).reduce((s: number, [nm, n]) => s + extraUnitPrice(String(nm)) * (Number(n) || 0) * qty, 0)
+                  )
                 }, 0)
 
                 const orderDelta = cartResolved.reduce((sum, l) => {
@@ -1633,14 +1684,16 @@ export default function MenuPublicoPage() {
                               : null
                             : null,
                           note: String(l.line?.note ?? '').trim() || null,
-                          extras: (Array.isArray((l.line as any)?.extras) ? (l.line as any).extras : []).map((nm: string) => ({
+                          extras: Object.entries(
+                            typeof (l.line as any)?.extras === 'object' && (l.line as any)?.extras ? ((l.line as any).extras as Record<string, number>) : {},
+                          ).map(([nm, n]) => ({
                             name: String(nm),
                             unitPrice: extraUnitPrice(String(nm)),
-                            qty: Number(l.line?.qty ?? 0),
-                            lineTotal: Math.round(extraUnitPrice(String(nm)) * Number(l.line?.qty ?? 0) * 100) / 100,
+                            qty: Number(l.line?.qty ?? 0) * (Number(n) || 0),
+                            lineTotal: Math.round(extraUnitPrice(String(nm)) * Number(l.line?.qty ?? 0) * (Number(n) || 0) * 100) / 100,
                           })),
                           unitPrice: lineUnitPrice(l.item, (l.line as any)?.size ?? null, (l.line as any)?.halfOtherItemId ?? null),
-                          lineTotal: Math.round((lineUnitPrice(l.item, (l.line as any)?.size ?? null, (l.line as any)?.halfOtherItemId ?? null) * Number(l.line?.qty ?? 0) + (Array.isArray((l.line as any)?.extras) ? (l.line as any).extras.reduce((s: number, nm: string) => s + extraUnitPrice(String(nm)) * Number(l.line?.qty ?? 0), 0) : 0)) * 100) / 100,
+                          lineTotal: Math.round((lineUnitPrice(l.item, (l.line as any)?.size ?? null, (l.line as any)?.halfOtherItemId ?? null) * Number(l.line?.qty ?? 0) + Object.entries(typeof (l.line as any)?.extras === 'object' && (l.line as any)?.extras ? ((l.line as any).extras as Record<string, number>) : {}).reduce((s: number, [nm, n]) => s + extraUnitPrice(String(nm)) * Number(l.line?.qty ?? 0) * (Number(n) || 0), 0)) * 100) / 100,
                         })),
                         ...(boxQty > 0
                           ? [
@@ -1680,14 +1733,16 @@ export default function MenuPublicoPage() {
                             : null
                           : null,
                         note: String(l.line?.note ?? '').trim() || null,
-                        extras: (Array.isArray((l.line as any)?.extras) ? (l.line as any).extras : []).map((nm: string) => ({
+                        extras: Object.entries(
+                          typeof (l.line as any)?.extras === 'object' && (l.line as any)?.extras ? ((l.line as any).extras as Record<string, number>) : {},
+                        ).map(([nm, n]) => ({
                           name: String(nm),
                           unitPrice: extraUnitPrice(String(nm)),
-                          qty: Number(l.line?.qty ?? 0),
-                          lineTotal: Math.round(extraUnitPrice(String(nm)) * Number(l.line?.qty ?? 0) * 100) / 100,
+                          qty: Number(l.line?.qty ?? 0) * (Number(n) || 0),
+                          lineTotal: Math.round(extraUnitPrice(String(nm)) * Number(l.line?.qty ?? 0) * (Number(n) || 0) * 100) / 100,
                         })),
                         unitPrice: lineUnitPrice(l.item, (l.line as any)?.size ?? null, (l.line as any)?.halfOtherItemId ?? null),
-                        lineTotal: Math.round((lineUnitPrice(l.item, (l.line as any)?.size ?? null, (l.line as any)?.halfOtherItemId ?? null) * Number(l.line?.qty ?? 0) + (Array.isArray((l.line as any)?.extras) ? (l.line as any).extras.reduce((s: number, nm: string) => s + extraUnitPrice(String(nm)) * Number(l.line?.qty ?? 0), 0) : 0)) * 100) / 100,
+                        lineTotal: Math.round((lineUnitPrice(l.item, (l.line as any)?.size ?? null, (l.line as any)?.halfOtherItemId ?? null) * Number(l.line?.qty ?? 0) + Object.entries(typeof (l.line as any)?.extras === 'object' && (l.line as any)?.extras ? ((l.line as any).extras as Record<string, number>) : {}).reduce((s: number, [nm, n]) => s + extraUnitPrice(String(nm)) * Number(l.line?.qty ?? 0) * (Number(n) || 0), 0)) * 100) / 100,
                       })),
                     })
                   }

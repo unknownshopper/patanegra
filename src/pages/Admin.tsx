@@ -61,6 +61,19 @@ type BridgeStatus = {
   printers?: any
 }
 
+type PresenceRow = {
+  id: string
+  uid: string
+  role?: string
+  deviceId?: string
+  displayName?: string
+  email?: string
+  page?: string
+  userAgent?: string
+  lastSeenAt?: any
+  lastSeenMs?: number
+}
+
 function hasSizes(it: Item) {
   return typeof it.prices?.cm20 === 'number' || typeof it.prices?.cm30 === 'number'
 }
@@ -375,6 +388,8 @@ export default function AdminPage() {
 
   const selectedBridge = React.useMemo(() => bridges.find((b) => b.id === selectedBridgeId) ?? null, [bridges, selectedBridgeId])
 
+  const [presence, setPresence] = React.useState<PresenceRow[]>([])
+
   React.useEffect(() => {
     const t = window.setInterval(() => setNow(Date.now()), 15_000)
     return () => window.clearInterval(t)
@@ -394,6 +409,36 @@ export default function AdminPage() {
       },
     )
   }, [])
+
+  React.useEffect(() => {
+    const q = query(collection(db, 'presence'))
+    return onSnapshot(
+      q,
+      (snap) => {
+        setPresence(snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) })))
+      },
+      () => {
+        setPresence([])
+      },
+    )
+  }, [])
+
+  const presenceActive = React.useMemo(() => {
+    const cutoff = now - 2 * 60 * 1000
+    return presence.filter((p) => {
+      const ms = Number(p?.lastSeenMs ?? (p?.lastSeenAt?.toMillis ? p.lastSeenAt.toMillis() : 0) ?? 0)
+      return ms >= cutoff
+    })
+  }, [presence, now])
+
+  const presenceCounts = React.useMemo(() => {
+    const byRole: Record<string, number> = {}
+    for (const p of presenceActive) {
+      const r = String(p?.role ?? '').trim() || '—'
+      byRole[r] = (byRole[r] ?? 0) + 1
+    }
+    return { total: presenceActive.length, byRole }
+  }, [presenceActive])
 
   React.useEffect(() => {
     const q = query(collection(db, 'ops'))
@@ -1685,102 +1730,131 @@ export default function AdminPage() {
 
           <div style={{ height: 12 }} />
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
-            <div className="card" style={{ margin: 0 }}>
-              <div className="muted" style={{ fontSize: 12 }}>Cuentas abiertas</div>
-              <div style={{ fontWeight: 950, fontSize: 24 }}>{tabs.filter((t) => String(t?.status ?? '') === 'open').length}</div>
+          <div className="card" style={{ margin: 0, marginBottom: 12 }}>
+            <div style={{ fontWeight: 900 }}>Conectividad</div>
+            <div className="muted" style={{ fontSize: 12 }}>
+              Dispositivos y bridge de impresión.
             </div>
-            <div className="card" style={{ margin: 0 }}>
-              <div className="muted" style={{ fontSize: 12 }}>Órdenes pendientes (Cocina)</div>
-              <div style={{ fontWeight: 950, fontSize: 22 }}>{pendingKitchen}</div>
-            </div>
-            <div className="card" style={{ margin: 0 }}>
-              <div className="muted" style={{ fontSize: 12 }}>Órdenes pendientes (Barra)</div>
-              <div style={{ fontWeight: 950, fontSize: 22 }}>{pendingBar}</div>
-            </div>
+            <div style={{ height: 12 }} />
 
-            {user?.role === 'admin' ? (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
               <div className="card" style={{ margin: 0 }}>
-                <div className="muted" style={{ fontSize: 12 }}>Print bridge</div>
-                <div style={{ height: 8 }} />
-                <select value={selectedBridgeId} onChange={(e) => setSelectedBridgeId(e.target.value)} style={{ width: '100%' }}>
-                  <option value="">(Selecciona)</option>
-                  {bridges.map((b) => {
-                    const dn = String(b?.deviceName ?? '').trim() || b.id
-                    const ms = Number(b?.lastSeenMs ?? (b?.lastSeenAt?.toMillis ? b.lastSeenAt.toMillis() : 0) ?? 0)
-                    const age = ms ? Math.max(0, Math.round((Date.now() - ms) / 60000)) : null
-                    const status = String(b?.status ?? '').trim() || '—'
-                    const label = age != null ? `${dn} · ${status} · ${age}m` : `${dn} · ${status}`
-                    return (
-                      <option key={b.id} value={b.id}>
-                        {label}
-                      </option>
-                    )
-                  })}
-                </select>
-
-                <div style={{ height: 10 }} />
-
-                <div style={{ display: 'grid', gap: 6 }}>
+                <div className="muted" style={{ fontSize: 12 }}>Dispositivos conectados</div>
+                <div style={{ fontWeight: 950, fontSize: 24 }}>{presenceCounts.total}</div>
+                <div className="muted" style={{ fontSize: 12 }}>
                   {(() => {
-                    const ph = (selectedBridge as any)?.printerHealth as any
-                    const mkDot = (ok: boolean | null) => {
-                      const color = ok === true ? '#16a34a' : ok === false ? '#ef4444' : '#9ca3af'
-                      return (
-                        <span
-                          style={{
-                            display: 'inline-block',
-                            width: 10,
-                            height: 10,
-                            borderRadius: 999,
-                            background: color,
-                            boxShadow: '0 0 0 2px rgba(17,24,39,0.06) inset',
-                          }}
-                        />
-                      )
-                    }
-
-                    const kitchenOk = typeof ph?.kitchen?.ok === 'boolean' ? (ph.kitchen.ok as boolean) : ph?.kitchen?.ok ?? null
-                    const barOk = typeof ph?.bar?.ok === 'boolean' ? (ph.bar.ok as boolean) : ph?.bar?.ok ?? null
-
-                    return (
-                      <>
-                        <div className="row" style={{ justifyContent: 'space-between' }}>
-                          <div className="muted" style={{ fontSize: 12 }}>
-                            Cocina
-                          </div>
-                          <div className="row" style={{ gap: 8 }}>
-                            {mkDot(kitchenOk)}
-                            <div className="muted" style={{ fontSize: 12 }}>
-                              {kitchenOk === true ? 'Conectado' : kitchenOk === false ? 'Sin conexión' : '—'}
-                            </div>
-                          </div>
-                        </div>
-                        <div className="row" style={{ justifyContent: 'space-between' }}>
-                          <div className="muted" style={{ fontSize: 12 }}>
-                            Caja
-                          </div>
-                          <div className="row" style={{ gap: 8 }}>
-                            {mkDot(barOk)}
-                            <div className="muted" style={{ fontSize: 12 }}>{barOk === true ? 'Conectado' : barOk === false ? 'Sin conexión' : '—'}</div>
-                          </div>
-                        </div>
-                      </>
-                    )
+                    const entries = Object.entries(presenceCounts.byRole)
+                      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+                    if (!entries.length) return '—'
+                    return entries.map(([r, n]) => `${n} ${r}`).join(', ')
                   })()}
                 </div>
-
-                <div style={{ height: 8 }} />
-                <button className="button secondary" disabled={bridgeCmdBusy || !selectedBridgeId} onClick={bridgeRestart} style={{ width: '100%' }}>
-                  Reiniciar conectividad
-                </button>
-                {bridgeCmdMsg ? (
-                  <div className="muted" style={{ fontSize: 12, marginTop: 8 }}>
-                    {bridgeCmdMsg}
-                  </div>
-                ) : null}
               </div>
-            ) : null}
+
+              {user?.role === 'admin' ? (
+                <div className="card" style={{ margin: 0 }}>
+                  <div className="muted" style={{ fontSize: 12 }}>Print bridge</div>
+                  <div style={{ height: 8 }} />
+                  <select value={selectedBridgeId} onChange={(e) => setSelectedBridgeId(e.target.value)} style={{ width: '100%' }}>
+                    <option value="">(Selecciona)</option>
+                    {bridges.map((b) => {
+                      const dn = String(b?.deviceName ?? '').trim() || b.id
+                      const ms = Number(b?.lastSeenMs ?? (b?.lastSeenAt?.toMillis ? b.lastSeenAt.toMillis() : 0) ?? 0)
+                      const age = ms ? Math.max(0, Math.round((Date.now() - ms) / 60000)) : null
+                      const status = String(b?.status ?? '').trim() || '—'
+                      const label = age != null ? `${dn} · ${status} · ${age}m` : `${dn} · ${status}`
+                      return (
+                        <option key={b.id} value={b.id}>
+                          {label}
+                        </option>
+                      )
+                    })}
+                  </select>
+
+                  <div style={{ height: 10 }} />
+
+                  <div style={{ display: 'grid', gap: 6 }}>
+                    {(() => {
+                      const ph = (selectedBridge as any)?.printerHealth as any
+                      const mkDot = (ok: boolean | null) => {
+                        const color = ok === true ? '#16a34a' : ok === false ? '#ef4444' : '#9ca3af'
+                        return (
+                          <span
+                            style={{
+                              display: 'inline-block',
+                              width: 10,
+                              height: 10,
+                              borderRadius: 999,
+                              background: color,
+                              boxShadow: '0 0 0 2px rgba(17,24,39,0.06) inset',
+                            }}
+                          />
+                        )
+                      }
+
+                      const kitchenOk = typeof ph?.kitchen?.ok === 'boolean' ? (ph.kitchen.ok as boolean) : ph?.kitchen?.ok ?? null
+                      const barOk = typeof ph?.bar?.ok === 'boolean' ? (ph.bar.ok as boolean) : ph?.bar?.ok ?? null
+
+                      return (
+                        <>
+                          <div className="row" style={{ justifyContent: 'space-between' }}>
+                            <div className="muted" style={{ fontSize: 12 }}>
+                              Cocina
+                            </div>
+                            <div className="row" style={{ gap: 8 }}>
+                              {mkDot(kitchenOk)}
+                              <div className="muted" style={{ fontSize: 12 }}>
+                                {kitchenOk === true ? 'Conectado' : kitchenOk === false ? 'Sin conexión' : '—'}
+                              </div>
+                            </div>
+                          </div>
+                          <div className="row" style={{ justifyContent: 'space-between' }}>
+                            <div className="muted" style={{ fontSize: 12 }}>
+                              Caja
+                            </div>
+                            <div className="row" style={{ gap: 8 }}>
+                              {mkDot(barOk)}
+                              <div className="muted" style={{ fontSize: 12 }}>{barOk === true ? 'Conectado' : barOk === false ? 'Sin conexión' : '—'}</div>
+                            </div>
+                          </div>
+                        </>
+                      )
+                    })()}
+                  </div>
+
+                  <div style={{ height: 8 }} />
+                  <button className="button secondary" disabled={bridgeCmdBusy || !selectedBridgeId} onClick={bridgeRestart} style={{ width: '100%' }}>
+                    Reiniciar conectividad
+                  </button>
+                  {bridgeCmdMsg ? (
+                    <div className="muted" style={{ fontSize: 12, marginTop: 8 }}>
+                      {bridgeCmdMsg}
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+            </div>
+          </div>
+
+          <div className="card" style={{ margin: 0 }}>
+            <div style={{ fontWeight: 900 }}>Operación</div>
+            <div className="muted" style={{ fontSize: 12 }}>Estado del restaurante.</div>
+            <div style={{ height: 12 }} />
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
+              <div className="card" style={{ margin: 0 }}>
+                <div className="muted" style={{ fontSize: 12 }}>Cuentas abiertas</div>
+                <div style={{ fontWeight: 950, fontSize: 24 }}>{tabs.filter((t) => String(t?.status ?? '') === 'open').length}</div>
+              </div>
+              <div className="card" style={{ margin: 0 }}>
+                <div className="muted" style={{ fontSize: 12 }}>Órdenes pendientes (Cocina)</div>
+                <div style={{ fontWeight: 950, fontSize: 22 }}>{pendingKitchen}</div>
+              </div>
+              <div className="card" style={{ margin: 0 }}>
+                <div className="muted" style={{ fontSize: 12 }}>Órdenes pendientes (Barra)</div>
+                <div style={{ fontWeight: 950, fontSize: 22 }}>{pendingBar}</div>
+              </div>
+
             {user?.role === 'admin' || user?.role === 'piso' ? (
               <div className="card" style={{ margin: 0 }}>
                 <div className="muted" style={{ fontSize: 12 }}>Pendientes</div>
@@ -1987,6 +2061,7 @@ export default function AdminPage() {
               <div style={{ fontWeight: 950, fontSize: 22 }}>{money(report.monthSum)}</div>
             </div>
           </div>
+        </div>
         </div>
       ) : null}
 
@@ -2648,6 +2723,52 @@ export default function AdminPage() {
                 </div>
                 <div className="row" style={{ gap: 8 }}>
                   <button
+                    className="button secondary"
+                    onClick={async () => {
+                      if (!reportOpen) return
+                      const d = reportEffectiveDetails?.byMethod ?? reportDetails[reportOpen].byMethod
+                      const dough = (reportEffectiveDetails as any)?.dough ?? reportDetails[reportOpen].dough
+                      const byName = user?.displayName ?? user?.email ?? null
+                      const byUid = user?.uid ?? null
+
+                      const label =
+                        reportEffective?.label ??
+                        (reportOpen === 'day' ? 'Hoy' : reportOpen === 'week' ? 'Semana' : reportOpen === 'month' ? 'Mes' : 'Rango')
+                      const ms = reportDayMs ?? (reportOpen === 'day' ? reportRanges.day.start : null) ?? Date.now()
+                      const dateStr = new Date(ms).toLocaleDateString('es-MX')
+                      const tableId = `reporte-${reportOpen}-${String(ms)}`
+
+                      const payload = {
+                        status: 'pending',
+                        area: 'bar',
+                        tableId,
+                        tableLabel: `REPORTE ${label} · ${dateStr}`,
+                        tabId: null,
+                        createdAt: serverTimestamp(),
+                        createdByUid: byUid,
+                        createdByName: byName,
+                        createdByStaffId: null,
+                        printedAt: null,
+                        items: [
+                          { itemId: 'reporte-efectivo', name: `Efectivo: ${money(Number(d.efectivo ?? 0))}`, qty: 1, unitPrice: 0, lineTotal: 0, categoryName: 'Reporte', extras: [], note: null },
+                          { itemId: 'reporte-tarjeta', name: `Tarjeta: ${money(Number(d.terminal ?? 0))}`, qty: 1, unitPrice: 0, lineTotal: 0, categoryName: 'Reporte', extras: [], note: null },
+                          { itemId: 'reporte-transferencia', name: `Transferencia: ${money(Number(d.transferencia ?? 0))}`, qty: 1, unitPrice: 0, lineTotal: 0, categoryName: 'Reporte', extras: [], note: null },
+                          { itemId: 'reporte-masa30', name: 'Masas 30', qty: Number(dough?.cm30 ?? 0) || 0, unitPrice: 0, lineTotal: 0, categoryName: 'Reporte', extras: [], note: null },
+                          { itemId: 'reporte-masa20', name: 'Masas 20', qty: Number(dough?.cm20 ?? 0) || 0, unitPrice: 0, lineTotal: 0, categoryName: 'Reporte', extras: [], note: null },
+                        ].filter((x) => Number(x.qty ?? 0) > 0),
+                      }
+
+                      try {
+                        const ref = doc(collection(db, 'orders'))
+                        await setDoc(ref, payload as any)
+                      } catch (e) {
+                        window.alert(String((e as any)?.message ?? e ?? 'Error imprimiendo totales'))
+                      }
+                    }}
+                  >
+                    Imprimir totales
+                  </button>
+                  <button
                     type="button"
                     className={reportSubView === 'summary' ? 'button' : 'button secondary'}
                     onClick={() => setReportSubView('summary')}
@@ -3002,23 +3123,25 @@ export default function AdminPage() {
       ) : null}
 
       {view === 'editor' ? (
-        <div className="card">
-          <div className="row" style={{ justifyContent: 'space-between' }}>
-            <strong>Editor de menú</strong>
-            <button
-              className="button"
-              onClick={async () => {
-                const nextSortOrder = categories.length ? Math.max(...categories.map((c) => Number(c.sortOrder ?? 0))) + 1 : 1
-                const ref = await addDoc(collection(db, 'menuCategories'), {
-                  name: 'Nueva categoría',
-                  sortOrder: nextSortOrder,
-                  isActive: true,
-                })
-                setSelectedCategoryId(ref.id)
-              }}
-            >
-              + Categoría
-            </button>
+        <>
+          <div className="card">
+            <div className="row" style={{ justifyContent: 'space-between' }}>
+              <strong>Editor de menú</strong>
+              <button
+                className="button"
+                onClick={async () => {
+                  const nextSortOrder = categories.length ? Math.max(...categories.map((c) => Number(c.sortOrder ?? 0))) + 1 : 1
+                  const ref = await addDoc(collection(db, 'menuCategories'), {
+                    name: 'Nueva categoría',
+                    sortOrder: nextSortOrder,
+                    isActive: true,
+                  })
+                  setSelectedCategoryId(ref.id)
+                }}
+              >
+                + Categoría
+              </button>
+            </div>
           </div>
 
         <div style={{ height: 12 }} />
@@ -3477,8 +3600,9 @@ export default function AdminPage() {
               {!selectedCategoryId ? <div className="muted">Selecciona una categoría.</div> : null}
             </div>
           </div>
+
         </div>
-        </div>
+        </>
       ) : null}
     </div>
   )

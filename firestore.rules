@@ -107,6 +107,25 @@ rules_version = '2';
        allow delete: if false;
      }
 
+     match /presence/{id} {
+       allow read: if isStaff();
+       allow create, update: if
+         isStaff() &&
+         request.resource.data.keys().hasOnly([
+           'uid',
+           'role',
+           'displayName',
+           'email',
+           'deviceId',
+           'page',
+           'userAgent',
+           'lastSeenAt',
+           'lastSeenMs'
+         ]) &&
+         request.resource.data.uid == request.auth.uid;
+       allow delete: if false;
+     }
+
      match /tabs/{id} {
        allow read: if isStaff();
        allow create: if isStaff();

@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useEffect, useMemo, useState } from 'react'
 import { onAuthStateChanged, signOut, type User } from 'firebase/auth'
-import { doc, onSnapshot } from 'firebase/firestore'
+import { doc, onSnapshot, setDoc, serverTimestamp } from 'firebase/firestore'
 import { auth, db } from '../firebase'
 import type { AuthUser, Role } from './types'
 
@@ -20,6 +20,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [staffId, setStaffId] = useState<string | null>(null)
   const [authLoading, setAuthLoading] = useState(true)
   const [roleLoading, setRoleLoading] = useState(false)
+
+  const deviceId = useMemo(() => {
+    try {
+      const key = 'deviceId'
+      const existing = String(localStorage.getItem(key) ?? '').trim()
+      if (existing) return existing
+      const created = `dev_${Math.random().toString(16).slice(2)}_${Date.now().toString(16)}`
+      localStorage.setItem(key, created)
+      return created
+    } catch {
+      return `dev_${Math.random().toString(16).slice(2)}_${Date.now().toString(16)}`
+    }
+  }, [])
 
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, (u) => {
@@ -67,6 +80,51 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     return () => unsub()
   }, [firebaseUser])
+
+  useEffect(() => {
+    const uid = firebaseUser?.uid
+    if (!uid) return
+    if (!role) return
+
+    const isStaff = role === 'admin' || role === 'gerente' || role === 'piso' || role === 'caja' || role === 'mesero' || role === 'almacen'
+    if (!isStaff) return
+
+    const presenceRef = doc(db, 'presence', `${uid}_${deviceId}`)
+    let alive = true
+
+    const send = async () => {
+      try {
+        await setDoc(
+          presenceRef,
+          {
+            uid,
+            role,
+            displayName: displayName ?? null,
+            email: firebaseUser?.email ?? null,
+            deviceId,
+            page: typeof window !== 'undefined' ? window.location.pathname : null,
+            userAgent: typeof navigator !== 'undefined' ? navigator.userAgent : null,
+            lastSeenAt: serverTimestamp(),
+            lastSeenMs: Date.now(),
+          },
+          { merge: true },
+        )
+      } catch (e) {
+        console.warn('[presence] write failed', e)
+      }
+    }
+
+    void send()
+    const t = window.setInterval(() => {
+      if (!alive) return
+      void send()
+    }, 30_000)
+
+    return () => {
+      alive = false
+      window.clearInterval(t)
+    }
+  }, [deviceId, displayName, firebaseUser?.email, firebaseUser?.uid, role])
 
   useEffect(() => {
     if (!firebaseUser) return
