@@ -2723,52 +2723,6 @@ export default function AdminPage() {
                 </div>
                 <div className="row" style={{ gap: 8 }}>
                   <button
-                    className="button secondary"
-                    onClick={async () => {
-                      if (!reportOpen) return
-                      const d = reportEffectiveDetails?.byMethod ?? reportDetails[reportOpen].byMethod
-                      const dough = (reportEffectiveDetails as any)?.dough ?? reportDetails[reportOpen].dough
-                      const byName = user?.displayName ?? user?.email ?? null
-                      const byUid = user?.uid ?? null
-
-                      const label =
-                        reportEffective?.label ??
-                        (reportOpen === 'day' ? 'Hoy' : reportOpen === 'week' ? 'Semana' : reportOpen === 'month' ? 'Mes' : 'Rango')
-                      const ms = reportDayMs ?? (reportOpen === 'day' ? reportRanges.day.start : null) ?? Date.now()
-                      const dateStr = new Date(ms).toLocaleDateString('es-MX')
-                      const tableId = `reporte-${reportOpen}-${String(ms)}`
-
-                      const payload = {
-                        status: 'pending',
-                        area: 'bar',
-                        tableId,
-                        tableLabel: `REPORTE ${label} · ${dateStr}`,
-                        tabId: null,
-                        createdAt: serverTimestamp(),
-                        createdByUid: byUid,
-                        createdByName: byName,
-                        createdByStaffId: null,
-                        printedAt: null,
-                        items: [
-                          { itemId: 'reporte-efectivo', name: `Efectivo: ${money(Number(d.efectivo ?? 0))}`, qty: 1, unitPrice: 0, lineTotal: 0, categoryName: 'Reporte', extras: [], note: null },
-                          { itemId: 'reporte-tarjeta', name: `Tarjeta: ${money(Number(d.terminal ?? 0))}`, qty: 1, unitPrice: 0, lineTotal: 0, categoryName: 'Reporte', extras: [], note: null },
-                          { itemId: 'reporte-transferencia', name: `Transferencia: ${money(Number(d.transferencia ?? 0))}`, qty: 1, unitPrice: 0, lineTotal: 0, categoryName: 'Reporte', extras: [], note: null },
-                          { itemId: 'reporte-masa30', name: 'Masas 30', qty: Number(dough?.cm30 ?? 0) || 0, unitPrice: 0, lineTotal: 0, categoryName: 'Reporte', extras: [], note: null },
-                          { itemId: 'reporte-masa20', name: 'Masas 20', qty: Number(dough?.cm20 ?? 0) || 0, unitPrice: 0, lineTotal: 0, categoryName: 'Reporte', extras: [], note: null },
-                        ].filter((x) => Number(x.qty ?? 0) > 0),
-                      }
-
-                      try {
-                        const ref = doc(collection(db, 'orders'))
-                        await setDoc(ref, payload as any)
-                      } catch (e) {
-                        window.alert(String((e as any)?.message ?? e ?? 'Error imprimiendo totales'))
-                      }
-                    }}
-                  >
-                    Imprimir totales
-                  </button>
-                  <button
                     type="button"
                     className={reportSubView === 'summary' ? 'button' : 'button secondary'}
                     onClick={() => setReportSubView('summary')}
@@ -2831,6 +2785,54 @@ export default function AdminPage() {
               {reportSubView === 'summary' ? (
                 <>
                   <div className="card" style={{ margin: 0 }}>
+                    <div className="row" style={{ justifyContent: 'flex-end', padding: '6px 8px' }}>
+                      <button
+                        type="button"
+                        className="button secondary"
+                        onClick={async () => {
+                          if (!reportOpen) return
+                          const details = (reportEffectiveDetails ?? reportDetails[reportOpen]) as any
+                          const byMethod = (details?.byMethod ?? {}) as any
+                          const dough = (details?.dough ?? {}) as any
+                          const byName = user?.displayName ?? user?.email ?? null
+                          const byUid = user?.uid ?? null
+                          const label =
+                            reportEffective?.label ??
+                            (reportOpen === 'day' ? 'Hoy' : reportOpen === 'week' ? 'Semana' : reportOpen === 'month' ? 'Mes' : 'Rango')
+                          const ms = (reportEffective as any)?.start ?? reportDayMs ?? reportRanges.day.start
+                          const dateStr = new Date(Number(ms) || Date.now()).toLocaleDateString('es-MX')
+
+                          const payload = {
+                            status: 'pending',
+                            area: 'bar',
+                            tableId: `reporte-totales-${reportOpen}-${String(ms)}`,
+                            tableLabel: `REPORTE · ${label} · ${dateStr}`,
+                            tabId: null,
+                            createdAt: serverTimestamp(),
+                            createdByUid: byUid,
+                            createdByName: byName,
+                            createdByStaffId: null,
+                            printedAt: null,
+                            items: [
+                              { itemId: 'reporte-efectivo', name: `Efectivo: ${money(Number(byMethod.efectivo ?? 0))}`, qty: 1, unitPrice: 0, lineTotal: 0, categoryName: 'Reporte', extras: [], note: null },
+                              { itemId: 'reporte-tarjeta', name: `Tarjeta: ${money(Number(byMethod.terminal ?? 0))}`, qty: 1, unitPrice: 0, lineTotal: 0, categoryName: 'Reporte', extras: [], note: null },
+                              { itemId: 'reporte-transferencia', name: `Transferencia: ${money(Number(byMethod.transferencia ?? 0))}`, qty: 1, unitPrice: 0, lineTotal: 0, categoryName: 'Reporte', extras: [], note: null },
+                              { itemId: 'reporte-masa30', name: 'Masas 30', qty: Number(dough.cm30 ?? 0) || 0, unitPrice: 0, lineTotal: 0, categoryName: 'Reporte', extras: [], note: null },
+                              { itemId: 'reporte-masa20', name: 'Masas 20', qty: Number(dough.cm20 ?? 0) || 0, unitPrice: 0, lineTotal: 0, categoryName: 'Reporte', extras: [], note: null },
+                            ].filter((x) => Number(x.qty ?? 0) > 0),
+                          }
+
+                          try {
+                            const ref = doc(collection(db, 'orders'))
+                            await setDoc(ref, payload as any)
+                          } catch (e) {
+                            window.alert(String((e as any)?.message ?? e ?? 'Error imprimiendo totales'))
+                          }
+                        }}
+                      >
+                        Imprimir totales
+                      </button>
+                    </div>
                     <div className="row" style={{ justifyContent: 'space-between', padding: '6px 8px', borderRadius: 10, background: 'rgba(17,24,39,0.03)' }}>
                       <div className="muted" style={{ fontSize: 12 }}>Efectivo</div>
                       <div style={{ fontWeight: 950 }}>{money((reportEffectiveDetails?.byMethod ?? reportDetails[reportOpen].byMethod).efectivo)}</div>
