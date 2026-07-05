@@ -1799,7 +1799,7 @@ export default function AdminPage() {
                         <>
                           <div className="row" style={{ justifyContent: 'space-between' }}>
                             <div className="muted" style={{ fontSize: 12 }}>
-                              Cocina
+                              Impresora Cocina
                             </div>
                             <div className="row" style={{ gap: 8 }}>
                               {mkDot(kitchenOk)}
@@ -1810,7 +1810,7 @@ export default function AdminPage() {
                           </div>
                           <div className="row" style={{ justifyContent: 'space-between' }}>
                             <div className="muted" style={{ fontSize: 12 }}>
-                              Caja
+                              Impresora Caja
                             </div>
                             <div className="row" style={{ gap: 8 }}>
                               {mkDot(barOk)}
