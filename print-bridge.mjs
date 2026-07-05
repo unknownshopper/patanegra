@@ -359,9 +359,11 @@ async function ticketText(order, { db }) {
   lines.push(area)
   lines.push('--------------------------------')
   lines.push(`${mesa}${time ? ` · ${time}` : ''}`)
-  if (String(tableId).startsWith('togo-')) {
+  {
     const label = String(order?.tableLabel ?? '').trim()
-    if (label && label !== tableId) lines.push(label)
+    const isTakeout = String(tableId).startsWith('togo-')
+    const isReport = String(tableId).startsWith('reporte-') || String(tableId).startsWith('reporte_t') || label.toUpperCase().startsWith('REPORTE')
+    if ((isTakeout || isReport) && label && label !== tableId) lines.push(label)
   }
   if (by) lines.push(`Mesero: ${by}`)
   if (folio) lines.push(`Folio: ${folio}`)
