@@ -271,7 +271,19 @@ function consumptionTicketText({ tab, orders, folio }) {
       const qty = Number(it?.qty ?? 0)
       if (!nm || !Number.isFinite(qty) || qty <= 0) continue
       const size = it?.size === 'cm20' ? '20' : it?.size === 'cm30' ? '30' : null
-      const label = size ? `${nm} (${size})` : nm
+      const extras = Array.isArray(it?.extras) ? it.extras : []
+      const extrasLabel = extras
+        .map((ex) => {
+          const exName = String(ex?.name ?? '').trim()
+          if (!exName) return ''
+          const exQtyRaw = Number(ex?.qty ?? 1)
+          const exQty = Number.isFinite(exQtyRaw) && exQtyRaw > 0 ? Math.trunc(exQtyRaw) : 1
+          return `+${exName}x${exQty}`
+        })
+        .filter(Boolean)
+        .join(' ')
+      const labelBase = size ? `${nm} (${size})` : nm
+      const label = extrasLabel ? `${labelBase} ${extrasLabel}` : labelBase
       qtyByLabel.set(label, (qtyByLabel.get(label) ?? 0) + qty)
       const lineTotal = Number(it?.lineTotal ?? 0)
       const unit = Number(it?.unitPrice ?? 0)
@@ -401,9 +413,9 @@ async function ticketText(order, { db }) {
     for (const ex of extras) {
       const exName = String(ex?.name ?? '').trim()
       if (!exName) continue
-      const exQty = Number(ex?.qty ?? 0)
-      const exQtyStr = Number.isFinite(exQty) && exQty > 1 ? ` x${exQty}` : ''
-      lines.push(`     + ${exName}${exQtyStr}`.slice(0, 32))
+      const exQtyRaw = Number(ex?.qty ?? 1)
+      const exQty = Number.isFinite(exQtyRaw) && exQtyRaw > 0 ? Math.trunc(exQtyRaw) : 1
+      lines.push(`     + ${exName} x${exQty}`.slice(0, 32))
     }
     if (note) {
       const compact = note.replace(/\s+/g, ' ').trim()
