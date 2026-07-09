@@ -6,6 +6,7 @@ import { initializeApp } from 'firebase/app'
 import { getAuth, signInWithEmailAndPassword } from 'firebase/auth'
 import {
   collection,
+  deleteDoc,
   getDocs,
   initializeFirestore,
   query,
@@ -70,12 +71,14 @@ function toMillisMaybe(v) {
 function parseArgs(argv) {
   const args = {
     apply: false,
+    delete: false,
     olderThanHours: 24,
     limit: 0,
   }
   for (let i = 2; i < argv.length; i++) {
     const a = argv[i]
     if (a === '--apply') args.apply = true
+    if (a === '--delete') args.delete = true
     if (a === '--older-than-hours') {
       const n = Number(argv[i + 1])
       if (Number.isFinite(n) && n >= 0) args.olderThanHours = n
@@ -93,7 +96,7 @@ function parseArgs(argv) {
 async function main() {
   loadDotEnvIfPresent()
 
-  const { apply, olderThanHours, limit } = parseArgs(process.argv)
+  const { apply, delete: shouldDelete, olderThanHours, limit } = parseArgs(process.argv)
 
   const firebaseConfig = {
     apiKey: env('VITE_FIREBASE_API_KEY'),
@@ -144,7 +147,11 @@ async function main() {
   console.log('[cleanup] Will process:', sliced.length)
 
   if (!apply) {
-    console.log('[cleanup] Dry run. Re-run with --apply to update printedAt.')
+    console.log(
+      shouldDelete
+        ? '[cleanup] Dry run. Re-run with --apply --delete to delete matching docs.'
+        : '[cleanup] Dry run. Re-run with --apply to update printedAt.',
+    )
     console.log('[cleanup] Sample ids:', sliced.slice(0, 20).map((d) => d.id).join(', '))
     return
   }
@@ -153,12 +160,16 @@ async function main() {
   let fail = 0
   for (const o of sliced) {
     try {
-      await updateDoc(doc(db, 'orders', String(o.id)), {
-        printedAt: serverTimestamp(),
-        printedBy: uid ?? null,
-        printedDevice: 'cleanup-script',
-        printedPrinter: null,
-      })
+      if (shouldDelete) {
+        await deleteDoc(doc(db, 'orders', String(o.id)))
+      } else {
+        await updateDoc(doc(db, 'orders', String(o.id)), {
+          printedAt: serverTimestamp(),
+          printedBy: uid ?? null,
+          printedDevice: 'cleanup-script',
+          printedPrinter: null,
+        })
+      }
       ok++
     } catch (e) {
       fail++
