@@ -116,7 +116,7 @@ export default function CajaPage() {
   const [payTab, setPayTab] = React.useState<Tab | null>(null)
   const [payMethod, setPayMethod] = React.useState<'efectivo' | 'terminal' | 'transferencia' | 'cortesia'>('efectivo')
   const [payCourtesy, setPayCourtesy] = React.useState(false)
-  const [payCourtesyPct, setPayCourtesyPct] = React.useState<30 | 50 | 100>(100)
+  const [payCourtesyPct, setPayCourtesyPct] = React.useState<10 | 30 | 50 | 100>(100)
   const [payCourtesyName, setPayCourtesyName] = React.useState('')
   const [paySplits, setPaySplits] = React.useState<
     Array<{ method: 'efectivo' | 'terminal' | 'transferencia'; amount: string; tip: string }>
@@ -2210,6 +2210,17 @@ export default function CajaPage() {
                   <div className="muted" style={{ fontSize: 12 }}>Descuento</div>
                   <div style={{ height: 8 }} />
                   <div className="row" style={{ gap: 8, justifyContent: 'flex-start', flexWrap: 'wrap' }}>
+                    <button
+                      className="button secondary"
+                      style={isActiveStyle(payCourtesyPct === 10)}
+                      disabled={payBusy}
+                      onClick={() => {
+                        setPayCourtesyPct(10)
+                        if (payMethod === 'cortesia') setPayMethod('efectivo')
+                      }}
+                    >
+                      10%
+                    </button>
                     <button
                       className="button secondary"
                       style={isActiveStyle(payCourtesyPct === 30)}
