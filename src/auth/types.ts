@@ -1,4 +1,4 @@
-export type Role = 'mesero' | 'caja' | 'almacen' | 'gerente' | 'piso' | 'admin'
+export type Role = 'mesero' | 'caja' | 'almacen' | 'gerente' | 'piso' | 'admin' | 'owner'
 
 export type AuthUser = {
   uid: string

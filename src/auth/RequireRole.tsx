@@ -10,7 +10,15 @@ export function RequireRole({ allow, children }: { allow: Role[]; children: Reac
   if (loading) return <div className="container">Cargando...</div>
   if (!user) return <Navigate to="/login" replace state={{ from: location.pathname }} />
   if (!user.role) return <div className="container">Sin rol asignado.</div>
-  if (!allow.includes(user.role)) return <div className="container">Acceso denegado.</div>
+  if (!allow.includes(user.role)) {
+    return (
+      <div className="container">
+        <div>Acceso denegado.</div>
+        <div style={{ opacity: 0.75, marginTop: 6 }}>Rol actual: {user.role}</div>
+        <div style={{ opacity: 0.75 }}>Requiere: {allow.join(', ')}</div>
+      </div>
+    )
+  }
 
   return <>{children}</>
 }

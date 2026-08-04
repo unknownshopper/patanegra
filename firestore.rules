@@ -13,6 +13,10 @@ rules_version = '2';
      function isAdmin() {
        return isSignedIn() && role() == 'admin';
      }
+
+     function isOwner() {
+       return isSignedIn() && role() == 'owner';
+     }
  
      function isGerente() {
        return isSignedIn() && role() == 'gerente';
@@ -35,7 +39,7 @@ rules_version = '2';
      }
  
      function isStaff() {
-       return isAdmin() || isGerente() || isPiso() || isCaja() || isMesero() || isAlmacen();
+       return isAdmin() || isOwner() || isGerente() || isPiso() || isCaja() || isMesero() || isAlmacen();
      }
 
      function isNumber(x) {
@@ -103,6 +107,24 @@ rules_version = '2';
            request.resource.data.diff(resource.data).changedKeys().hasOnly(['takeoutSeq']) &&
            request.resource.data.takeoutSeq is number &&
            request.resource.data.takeoutSeq == (resource.data.takeoutSeq + 1)
+         );
+       allow delete: if false;
+     }
+
+     match /opsClosings/{id} {
+       allow read: if isAdmin() || isOwner();
+       allow create: if isAdmin() || isGerente() || isCaja();
+       allow update: if
+         isAdmin() ||
+         (
+           (isGerente() || isCaja()) &&
+           request.resource.data.diff(resource.data).changedKeys().hasOnly([
+             'closedAt',
+             'closedAtMs',
+             'closedByUid',
+             'closedByName'
+           ]) &&
+           request.resource.data.closedAtMs is number
          );
        allow delete: if false;
      }

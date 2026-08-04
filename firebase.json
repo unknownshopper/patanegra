@@ -40,6 +40,38 @@
         "destination": "/admin.html"
       },
       {
+        "source": "/cierre",
+        "destination": "/admin.html"
+      },
+      {
+        "source": "/cierre/**",
+        "destination": "/admin.html"
+      },
+      {
+        "source": "/cierres",
+        "destination": "/admin.html"
+      },
+      {
+        "source": "/cierres/**",
+        "destination": "/admin.html"
+      },
+      {
+        "source": "/owner",
+        "destination": "/admin.html"
+      },
+      {
+        "source": "/owner/**",
+        "destination": "/admin.html"
+      },
+      {
+        "source": "/report",
+        "destination": "/admin.html"
+      },
+      {
+        "source": "/report/**",
+        "destination": "/admin.html"
+      },
+      {
         "source": "/dashboard",
         "destination": "/admin.html"
       },

@@ -86,7 +86,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (!uid) return
     if (!role) return
 
-    const isStaff = role === 'admin' || role === 'gerente' || role === 'piso' || role === 'caja' || role === 'mesero' || role === 'almacen'
+    const isStaff =
+      role === 'admin' ||
+      role === 'owner' ||
+      role === 'gerente' ||
+      role === 'piso' ||
+      role === 'caja' ||
+      role === 'mesero' ||
+      role === 'almacen'
     if (!isStaff) return
 
     const presenceRef = doc(db, 'presence', `${uid}_${deviceId}`)

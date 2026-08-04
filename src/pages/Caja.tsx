@@ -48,6 +48,38 @@ type Tab = {
   createdByStaffId?: string | null
 }
 
+const OP_DAY_START_HOUR = 11
+const OP_DAY_END_HOUR = 4
+
+function pad2(n: number) {
+  return String(n).padStart(2, '0')
+}
+
+function ymdKeyFromDate(d: Date) {
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`
+}
+
+function operationalDayKeyForMs(ms: number) {
+  const d = new Date(ms)
+  const h = d.getHours()
+  // Operational day is from 11:00 to 03:59 next day.
+  // Times between 04:00 and 10:59 are outside of the operational window.
+  if (h >= OP_DAY_START_HOUR) return ymdKeyFromDate(d)
+  if (h < OP_DAY_END_HOUR) {
+    const prev = new Date(d.getFullYear(), d.getMonth(), d.getDate() - 1, 0, 0, 0, 0)
+    return ymdKeyFromDate(prev)
+  }
+  return null
+}
+
+function mondayKeyForDayKey(dayKey: string) {
+  const d = new Date(`${dayKey}T00:00:00`)
+  const day = d.getDay() // 0=Sun..6=Sat
+  const diff = (day + 6) % 7 // days since Monday
+  const m = new Date(d.getFullYear(), d.getMonth(), d.getDate() - diff, 0, 0, 0, 0)
+  return ymdKeyFromDate(m)
+}
+
 function tableLabel(id: string) {
   if (id.startsWith('togo-')) {
     const raw = id.replace('togo-', '').trim()
@@ -266,6 +298,9 @@ export default function CajaPage() {
   const [expandedSaleId, setExpandedSaleId] = React.useState<string | null>(null)
   const [expandedTabId, setExpandedTabId] = React.useState<string | null>(null)
 
+  const [closingBusy, setClosingBusy] = React.useState(false)
+  const [closingMsg, setClosingMsg] = React.useState<string | null>(null)
+
   const [reportTabs, setReportTabs] = React.useState<Tab[]>([])
   const [reportOrders, setReportOrders] = React.useState<any[]>([])
   const [reportLoadedAtMs, setReportLoadedAtMs] = React.useState<number | null>(null)
@@ -428,17 +463,9 @@ export default function CajaPage() {
     [openInternalTabIds, orders],
   )
   const report = React.useMemo(() => {
-    const d = new Date(now)
-    const dayStart = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0, 0).getTime()
-    const weekStartDate = new Date(d)
-    const day = weekStartDate.getDay()
-    const diff = (day + 6) % 7
-    weekStartDate.setDate(weekStartDate.getDate() - diff)
-    weekStartDate.setHours(0, 0, 0, 0)
-    const weekStart = weekStartDate.getTime()
-    const weekEnd = weekStart + 7 * 24 * 60 * 60 * 1000
-    const monthStart = new Date(d.getFullYear(), d.getMonth(), 1, 0, 0, 0, 0).getTime()
-    const monthEnd = new Date(d.getFullYear(), d.getMonth() + 1, 1, 0, 0, 0, 0).getTime()
+    const dayKey = operationalDayKeyForMs(now)
+    const weekStartKey = dayKey ? mondayKeyForDayKey(dayKey) : null
+    const monthKey = dayKey ? dayKey.slice(0, 7) : null
 
     let daySum = 0
     let weekSum = 0
@@ -448,12 +475,17 @@ export default function CajaPage() {
       const legacyAtMs = (t as any)?.closedAt?.toMillis ? (t as any).closedAt.toMillis() : null
       const at = paidAtMs ?? legacyAtMs
       if (!at) continue
+
+      const opKey = operationalDayKeyForMs(at)
+      if (!opKey) continue
+
       const v = paidAtMs ? Number((t as any).paidTotal ?? (t as any).total ?? 0) : Number((t as any).total ?? 0)
-      if (at >= dayStart) daySum += v
-      if (at >= weekStart) weekSum += v
-      if (at >= monthStart) monthSum += v
+
+      if (dayKey && opKey === dayKey) daySum += v
+      if (weekStartKey && opKey >= weekStartKey && opKey <= dayKey!) weekSum += v
+      if (monthKey && opKey.startsWith(monthKey)) monthSum += v
     }
-    return { daySum, weekSum, monthSum, dayStart, weekStart, weekEnd, monthStart, monthEnd }
+    return { daySum, weekSum, monthSum, dayKey, weekStartKey, monthKey }
   }, [paidOrLegacyTabs, now])
 
   const reportDetails = React.useMemo(() => {
@@ -495,13 +527,18 @@ export default function CajaPage() {
       },
     }
 
-    const compute = (key: 'day' | 'week' | 'month', start: number, end: number) => {
+    const compute = (key: 'day' | 'week' | 'month') => {
       const rows = paidOrLegacyTabs
         .filter((t) => {
           const paidAtMs = (t as any)?.paidAt?.toMillis ? (t as any).paidAt.toMillis() : null
           const legacyAtMs = (t as any)?.closedAt?.toMillis ? (t as any).closedAt.toMillis() : null
           const ms = paidAtMs ?? legacyAtMs
-          return ms != null && ms >= start && ms < end
+          if (ms == null) return false
+          const opKey = operationalDayKeyForMs(ms)
+          if (!opKey) return false
+          if (key === 'day') return Boolean(report.dayKey) && opKey === report.dayKey
+          if (key === 'week') return Boolean(report.weekStartKey && report.dayKey) && opKey >= report.weekStartKey! && opKey <= report.dayKey!
+          return Boolean(report.monthKey) && opKey.startsWith(report.monthKey!)
         })
         .sort((a, b) => {
           const aMs = ((a as any)?.paidAt?.toMillis ? (a as any).paidAt.toMillis() : (a as any)?.closedAt?.toMillis ? (a as any).closedAt.toMillis() : 0) as number
@@ -564,7 +601,7 @@ export default function CajaPage() {
         }
       }
 
-      const tabIds = new Set(rows.map((t) => String((t as any)?.id ?? (t as any))) )
+      const tabIds = new Set(rows.map((t) => String((t as any)?.id ?? (t as any))))
       for (const o of orders) {
         if (!o) continue
         if (!tabIds.has(String((o as any)?.tabId ?? ''))) continue
@@ -582,11 +619,93 @@ export default function CajaPage() {
       byKey[key] = { tabs: rows, sum, byMethod, masa }
     }
 
-    compute('day', report.dayStart, report.dayStart + 24 * 60 * 60 * 1000)
-    compute('week', report.weekStart, report.weekEnd)
-    compute('month', report.monthStart, report.monthEnd)
+    compute('day')
+    compute('week')
+    compute('month')
     return byKey
   }, [paidOrLegacyTabs, report, reportOrders])
+
+  const doClosing = React.useCallback(async () => {
+    if (!user?.uid) return
+    setClosingBusy(true)
+    setClosingMsg(null)
+    try {
+      const dayKey = operationalDayKeyForMs(now)
+      if (!dayKey) {
+        setClosingMsg('Fuera de horario de jornada (11:00–04:00).')
+        return
+      }
+
+      const day = reportDetails.day
+      const discountTotal = (Array.isArray(day?.tabs) ? day.tabs : []).reduce((s: number, t: any) => {
+        const v = Number(t?.courtesyAmount ?? 0)
+        return s + (Number.isFinite(v) && v > 0 ? v : 0)
+      }, 0)
+
+      const summary = {
+        salesCount: Array.isArray(day?.tabs) ? day.tabs.length : 0,
+        sum: Number(day?.sum ?? 0),
+        discountTotal: Math.round(discountTotal * 100) / 100,
+        byMethod: {
+          efectivo: Number(day?.byMethod?.efectivo ?? 0),
+          propinaEfectivo: Number(day?.byMethod?.propinaEfectivo ?? 0),
+          terminal: Number(day?.byMethod?.terminal ?? 0),
+          propinaTerminal: Number(day?.byMethod?.propinaTerminal ?? 0),
+          transferencia: Number(day?.byMethod?.transferencia ?? 0),
+          propinaTransferencia: Number(day?.byMethod?.propinaTransferencia ?? 0),
+          cortesia: Number(day?.byMethod?.cortesia ?? 0),
+          legacy: Number(day?.byMethod?.legacy ?? 0),
+        },
+        dough: {
+          cm20: Number(day?.masa?.cm20 ?? 0),
+          cm30: Number(day?.masa?.cm30 ?? 0),
+        },
+      }
+
+      const ref = doc(db, 'opsClosings', dayKey)
+      const result = await runTransaction(db, async (tx) => {
+        const snap = await tx.get(ref)
+        const nowMs = Date.now()
+        if (snap.exists()) {
+          const cur = snap.data() as any
+          const hasClosed = Boolean(cur?.closedAtMs)
+          if (!hasClosed) {
+            tx.update(ref, {
+              closedAt: serverTimestamp(),
+              closedAtMs: nowMs,
+              closedByUid: user.uid,
+              closedByName: user.displayName ?? user.email ?? null,
+            })
+          }
+          return { already: true, markedClosed: !hasClosed }
+        }
+        tx.set(ref, {
+          dayKey,
+          createdAt: serverTimestamp(),
+          createdAtMs: nowMs,
+          createdByUid: user.uid,
+          createdByName: user.displayName ?? user.email ?? null,
+          summary,
+          closedAt: serverTimestamp(),
+          closedAtMs: nowMs,
+          closedByUid: user.uid,
+          closedByName: user.displayName ?? user.email ?? null,
+        })
+        return { already: false, markedClosed: true }
+      })
+
+      if (result?.already) {
+        setClosingMsg(result?.markedClosed ? 'Jornada cerrada.' : 'Ya existe un cierre para hoy.')
+      } else {
+        setClosingMsg('Jornada cerrada.')
+      }
+      navigate(`/cierre?d=${encodeURIComponent(dayKey)}&m=day`)
+    } catch {
+      setClosingMsg('No se pudo guardar el cierre. Revisa conexión o permisos.')
+    } finally {
+      setClosingBusy(false)
+    }
+  }, [navigate, now, reportDetails.day, user?.displayName, user?.email, user?.uid])
 
   const reportDayDrilldown = React.useMemo(() => {
     const dayMs = 24 * 60 * 60 * 1000
@@ -1171,13 +1290,24 @@ export default function CajaPage() {
                     <div style={{ fontWeight: 900 }}>Detalle · {reportOpen === 'day' ? 'Hoy' : reportOpen === 'week' ? 'Semana' : 'Mes'}</div>
                     <div className="muted" style={{ fontSize: 12 }}>{reportDetails[reportOpen].tabs.length} venta(s)</div>
                   </div>
-                  <button
-                    className="button secondary"
-                    onClick={() => downloadCsv(reportDetails[reportOpen].tabs, `reporte_caja_${reportOpen}_${new Date(now).toISOString().slice(0, 10)}.csv`)}
-                  >
-                    Descargar CSV
-                  </button>
+                  <div className="row" style={{ gap: 8 }}>
+                    {reportOpen === 'day' ? (
+                      <button className="button" disabled={closingBusy} onClick={doClosing}>
+                        Cierre de caja
+                      </button>
+                    ) : null}
+                    <button
+                      className="button secondary"
+                      onClick={() => downloadCsv(reportDetails[reportOpen].tabs, `reporte_caja_${reportOpen}_${new Date(now).toISOString().slice(0, 10)}.csv`)}
+                    >
+                      Descargar CSV
+                    </button>
+                  </div>
                 </div>
+
+                {reportOpen === 'day' && closingMsg ? (
+                  <div className="muted" style={{ fontSize: 12, marginTop: 8 }}>{closingMsg}</div>
+                ) : null}
 
                 <div style={{ height: 12 }} />
 
@@ -1597,6 +1727,24 @@ export default function CajaPage() {
 
       {view === 'dashboard' ? (
         <>
+          {(user?.role === 'caja' || user?.role === 'gerente') && closingMsg ? (
+            <div className="muted" style={{ fontSize: 12, marginBottom: 8 }}>{closingMsg}</div>
+          ) : null}
+          {(user?.role === 'caja' || user?.role === 'gerente') ? (
+            <div className="row" style={{ justifyContent: 'flex-end', marginBottom: 10 }}>
+              <button
+                className="button"
+                disabled={closingBusy}
+                onClick={() => {
+                  const ok = window.confirm('¿Cerrar jornada? Esto guardará el cierre del día y marcará la hora de cierre.')
+                  if (!ok) return
+                  void doClosing()
+                }}
+              >
+                Cerrar jornada
+              </button>
+            </div>
+          ) : null}
           <div className="tableGrid">
             {mesaTableIds.map((tableId) => {
               const tableTabs = openTabsByTable[tableId] ?? []

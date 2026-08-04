@@ -103,6 +103,28 @@ function toMillisMaybe(ts: any) {
   }
 }
 
+const OP_DAY_START_HOUR = 11
+const OP_DAY_END_HOUR = 4
+
+function pad2(n: number) {
+  return String(n).padStart(2, '0')
+}
+
+function ymdKeyFromDate(d: Date) {
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`
+}
+
+function operationalDayKeyForMs(ms: number) {
+  const d = new Date(ms)
+  const h = d.getHours()
+  if (h >= OP_DAY_START_HOUR) return ymdKeyFromDate(d)
+  if (h < OP_DAY_END_HOUR) {
+    const prev = new Date(d.getFullYear(), d.getMonth(), d.getDate() - 1, 0, 0, 0, 0)
+    return ymdKeyFromDate(prev)
+  }
+  return null
+}
+
 type MenuImportPayload = {
   categories: Array<{ name: string; sortOrder?: number; isActive?: boolean }>
   items: Array<{
@@ -311,6 +333,9 @@ export default function AdminPage() {
   const { user } = useAuth()
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
+
+  const [closingBusy, setClosingBusy] = React.useState(false)
+  const [closingMsg, setClosingMsg] = React.useState<string | null>(null)
 
   React.useEffect(() => {
     const title = 'Patanegra · Admin'
@@ -1031,6 +1056,75 @@ export default function AdminPage() {
     return computeRange(reportEffective.start, reportEffective.end)
   }, [computeRange, reportEffective])
 
+  const doClosing = React.useCallback(async () => {
+    if (!user?.uid) return
+    setClosingBusy(true)
+    setClosingMsg(null)
+    try {
+      const dayKey = operationalDayKeyForMs(now)
+      if (!dayKey) {
+        setClosingMsg('Fuera de horario de jornada (11:00–04:00).')
+        return
+      }
+
+      if (reportOpen !== 'day') {
+        setClosingMsg('El cierre solo está disponible para el reporte de Día.')
+        return
+      }
+
+      const details = (reportEffectiveDetails ?? reportDetails[reportOpen]) as any
+      const tabs = (details?.tabs ?? []) as any[]
+      const discountTotal = tabs.reduce((s: number, t: any) => {
+        const v = Number(t?.courtesyAmount ?? 0)
+        return s + (Number.isFinite(v) && v > 0 ? v : 0)
+      }, 0)
+
+      const byMethod = (details?.byMethod ?? {}) as any
+      const dough = (details?.dough ?? {}) as any
+      const summary = {
+        salesCount: tabs.length,
+        sum: Number(details?.sum ?? 0),
+        discountTotal: Math.round(discountTotal * 100) / 100,
+        byMethod: {
+          efectivo: Number(byMethod?.efectivo ?? 0),
+          propinaEfectivo: Number(byMethod?.propinaEfectivo ?? 0),
+          terminal: Number(byMethod?.terminal ?? 0),
+          propinaTerminal: Number(byMethod?.propinaTerminal ?? 0),
+          transferencia: Number(byMethod?.transferencia ?? 0),
+          propinaTransferencia: Number(byMethod?.propinaTransferencia ?? 0),
+          cortesia: Number(byMethod?.cortesia ?? 0),
+          legacy: Number(byMethod?.legacy ?? 0),
+        },
+        dough: {
+          cm20: Number(dough?.cm20 ?? 0),
+          cm30: Number(dough?.cm30 ?? 0),
+        },
+      }
+
+      const ref = doc(db, 'opsClosings', dayKey)
+      const result = await runTransaction(db, async (tx) => {
+        const snap = await tx.get(ref)
+        if (snap.exists()) return { already: true }
+        tx.set(ref, {
+          dayKey,
+          createdAt: serverTimestamp(),
+          createdAtMs: Date.now(),
+          createdByUid: user.uid,
+          createdByName: user.displayName ?? user.email ?? null,
+          summary,
+        })
+        return { already: false }
+      })
+
+      setClosingMsg(result?.already ? 'Ya existe un cierre para hoy.' : 'Cierre guardado.')
+      navigate(`/cierre?d=${encodeURIComponent(dayKey)}&m=day`)
+    } catch {
+      setClosingMsg('No se pudo guardar el cierre. Revisa conexión o permisos.')
+    } finally {
+      setClosingBusy(false)
+    }
+  }, [navigate, now, reportEffectiveDetails, reportOpen, reportDetails, user?.displayName, user?.email, user?.uid])
+
   const reportItemsByTabId = React.useMemo(() => {
     const out = new Map<string, Array<{ name: string; qty: number; amount: number }>>()
     if (!reportEffective) return out
@@ -1317,12 +1411,13 @@ export default function AdminPage() {
       const dt = t?.paidAt?.toDate ? t.paidAt.toDate() : t?.closedAt?.toDate ? t.closedAt.toDate() : null
       const dateStr = dt ? dt.toLocaleDateString('es-MX') : ''
       const timeStr = dt ? dt.toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' }) : ''
+      const total = t?.paidAt?.toMillis ? (t.paidTotal ?? t.total ?? 0) : (t.total ?? 0)
       out.push([
         dateStr,
         timeStr,
         t.tableId ?? '',
         t.tabName ?? '',
-        Number((t?.paidAt?.toMillis ? (t.paidTotal ?? t.total ?? 0) : (t.total ?? 0)) ?? 0).toFixed(2),
+        Number(total).toFixed(2),
       ].map(esc).join(','))
     }
     const blob = new Blob([out.join('\n')], { type: 'text/csv;charset=utf-8' })
@@ -2722,6 +2817,11 @@ export default function AdminPage() {
                   </div>
                 </div>
                 <div className="row" style={{ gap: 8 }}>
+                  {reportOpen === 'day' ? (
+                    <button type="button" className="button" disabled={closingBusy} onClick={doClosing}>
+                      Cierre de caja
+                    </button>
+                  ) : null}
                   <button
                     type="button"
                     className={reportSubView === 'summary' ? 'button' : 'button secondary'}
@@ -2751,6 +2851,10 @@ export default function AdminPage() {
                   </button>
                 </div>
               </div>
+
+              {reportOpen === 'day' && closingMsg ? (
+                <div className="muted" style={{ fontSize: 12, marginTop: 8 }}>{closingMsg}</div>
+              ) : null}
 
               {reportOpen === 'week' || reportOpen === 'month' ? (
                 <>

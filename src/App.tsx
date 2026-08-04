@@ -8,6 +8,10 @@ const MeseroPage = lazy(() => import('./pages/Mesero'))
 const CajaPage = lazy(() => import('./pages/Caja'))
 const AlmacenPage = lazy(() => import('./pages/Almacen'))
 const AdminPage = lazy(() => import('./pages/Admin'))
+const CierrePage = lazy(() => import('./pages/Cierre'))
+const CierresPage = lazy(() => import('./pages/Cierres'))
+const OwnerPage = lazy(() => import('./pages/Owner'))
+const ReportPage = lazy(() => import('./pages/Report'))
 
 export default function App() {
   return (
@@ -48,6 +52,42 @@ export default function App() {
           element={
             <RequireRole allow={['admin', 'piso']}>
               <AdminPage />
+            </RequireRole>
+          }
+        />
+
+        <Route
+          path="/cierre"
+          element={
+            <RequireRole allow={['owner', 'admin']}>
+              <CierrePage />
+            </RequireRole>
+          }
+        />
+
+        <Route
+          path="/cierres"
+          element={
+            <RequireRole allow={['owner', 'admin']}>
+              <CierresPage />
+            </RequireRole>
+          }
+        />
+
+        <Route
+          path="/report"
+          element={
+            <RequireRole allow={['owner', 'admin']}>
+              <ReportPage />
+            </RequireRole>
+          }
+        />
+
+        <Route
+          path="/owner"
+          element={
+            <RequireRole allow={['owner', 'admin']}>
+              <OwnerPage />
             </RequireRole>
           }
         />
