@@ -700,44 +700,90 @@ async function main() {
   let lastCmdRequestedAtMs = 0
   let unsubCmd = null
 
-  unsubCmd = onSnapshot(
-    cmdRef,
-    async (snap) => {
+  const listenerState = new Map()
+  const getListenerState = (name) => {
+    const key = String(name)
+    const cur = listenerState.get(key) ?? { retries: 0, timer: null, lastOkAtMs: 0 }
+    listenerState.set(key, cur)
+    return cur
+  }
+  const clearListenerTimer = (name) => {
+    const st = getListenerState(name)
+    if (st.timer) clearTimeout(st.timer)
+    st.timer = null
+  }
+  const markListenerOk = (name) => {
+    const st = getListenerState(name)
+    st.retries = 0
+    st.lastOkAtMs = Date.now()
+    clearListenerTimer(name)
+  }
+  const scheduleResubscribe = (name, startFn, err) => {
+    const st = getListenerState(name)
+    clearListenerTimer(name)
+    st.retries = Math.min(20, (st.retries ?? 0) + 1)
+    const base = 1500
+    const delay = Math.min(60_000, Math.trunc(base * Math.pow(1.7, st.retries - 1)))
+    console.error(`[print-bridge] Will resubscribe listener=${name} in ${delay}ms`, err)
+    st.timer = setTimeout(() => {
       try {
-        const data = snap.exists() ? snap.data() : null
-        const action = String(data?.action ?? '').trim().toLowerCase()
-        const reqMs =
-          toMillisMaybe(data?.requestedAt) ??
-          (Number.isFinite(Number(data?.requestedAtMs)) ? Number(data?.requestedAtMs) : null) ??
-          0
-        if (!action || !reqMs) return
-        if (reqMs <= lastCmdRequestedAtMs) return
-        lastCmdRequestedAtMs = reqMs
-
-        if (action === 'restart') {
-          console.log('[print-bridge] Command: restart requested')
-          try {
-            await updateDoc(cmdRef, {
-              handledAt: serverTimestamp(),
-              handledAtMs: Date.now(),
-              handledByPid: process.pid,
-              handledByDevice: deviceName,
-              handledStatus: 'restarting',
-            })
-          } catch {
-            // ignore
-          }
-          setTimeout(() => process.exit(0), 250)
-        }
+        startFn()
       } catch (e) {
-        console.log('[print-bridge] Command handler error:', String((e && e.message) || e || 'cmd error'))
+        console.error(`[print-bridge] Failed to resubscribe listener=${name}`, e)
+        scheduleResubscribe(name, startFn, e)
       }
-    },
-    (err) => {
-      console.error('[print-bridge] Command snapshot error', err)
-      noteUnavailable(err, 'cmd')
-    },
-  )
+    }, delay)
+  }
+
+  const startCmdListener = () => {
+    try {
+      if (typeof unsubCmd === 'function') unsubCmd()
+    } catch {
+      // ignore
+    }
+    unsubCmd = onSnapshot(
+      cmdRef,
+      async (snap) => {
+        markListenerOk('cmd')
+        try {
+          const data = snap.exists() ? snap.data() : null
+          const action = String(data?.action ?? '').trim().toLowerCase()
+          const reqMs =
+            toMillisMaybe(data?.requestedAt) ??
+            (Number.isFinite(Number(data?.requestedAtMs)) ? Number(data?.requestedAtMs) : null) ??
+            0
+          if (!action || !reqMs) return
+          if (reqMs <= lastCmdRequestedAtMs) return
+          lastCmdRequestedAtMs = reqMs
+
+          if (action === 'restart') {
+            console.log('[print-bridge] Command: restart requested')
+            try {
+              await updateDoc(cmdRef, {
+                handledAt: serverTimestamp(),
+                handledAtMs: Date.now(),
+                handledByPid: process.pid,
+                handledByDevice: deviceName,
+                handledStatus: 'restarting',
+              })
+            } catch {
+              // ignore
+            }
+            setTimeout(() => process.exit(0), 250)
+          }
+        } catch (e) {
+          console.log('[print-bridge] Command handler error:', String((e && e.message) || e || 'cmd error'))
+        }
+      },
+      (err) => {
+        console.error('[print-bridge] Command snapshot error', err)
+        noteUnavailable(err, 'cmd')
+        scheduleResubscribe('cmd', startCmdListener, err)
+      },
+    )
+  }
+
+  startCmdListener()
 
   const inFlightOrders = new Set()
   const inFlightReceipts = new Set()
@@ -795,9 +841,18 @@ async function main() {
 
   console.log('[print-bridge] Subscribing orders (status==pending)…')
 
-  unsubOrders = onSnapshot(
-    qOrders,
-    async (snap) => {
+  let lastOrdersSnapshotAtMs = 0
+  const startOrdersListener = () => {
+    try {
+      if (typeof unsubOrders === 'function') unsubOrders()
+    } catch {
+      // ignore
+    }
+    unsubOrders = onSnapshot(
+      qOrders,
+      async (snap) => {
+        markListenerOk('orders')
+        lastOrdersSnapshotAtMs = Date.now()
       console.log(
         `[print-bridge] Orders snapshot: size=${snap.size} pendingChanges=${snap.docChanges().length} fromCache=${snap.metadata.fromCache}`,
       )
@@ -881,21 +936,34 @@ async function main() {
           inFlightOrders.delete(id)
         }
       }
-    },
-    (err) => {
-      console.error('[print-bridge] Snapshot error', err)
-      noteUnavailable(err, 'orders')
-    },
-  )
+      },
+      (err) => {
+        console.error('[print-bridge] Snapshot error', err)
+        noteUnavailable(err, 'orders')
+        scheduleResubscribe('orders', startOrdersListener, err)
+      },
+    )
+  }
+
+  startOrdersListener()
 
   if (printReceiptOnPaid) {
     const qTabs = query(collection(db, 'tabs'), where('paymentStatus', '==', 'paid'))
 
     console.log('[print-bridge] Subscribing receipts (tabs paymentStatus==paid)…')
 
-    unsubReceipts = onSnapshot(
-      qTabs,
-      async (snap) => {
+    let lastReceiptsSnapshotAtMs = 0
+    const startReceiptsListener = () => {
+      try {
+        if (typeof unsubReceipts === 'function') unsubReceipts()
+      } catch {
+        // ignore
+      }
+      unsubReceipts = onSnapshot(
+        qTabs,
+        async (snap) => {
+          markListenerOk('receipts')
+          lastReceiptsSnapshotAtMs = Date.now()
         console.log(
           `[print-bridge] Receipts snapshot: size=${snap.size} changes=${snap.docChanges().length} fromCache=${snap.metadata.fromCache}`,
         )
@@ -965,21 +1033,44 @@ async function main() {
             inFlightReceipts.delete(id)
           }
         }
-      },
-      (err) => {
-        console.error('[print-bridge] Snapshot error (receipts)', err)
-        noteUnavailable(err, 'receipts')
-      },
-    )
+        },
+        (err) => {
+          console.error('[print-bridge] Snapshot error (receipts)', err)
+          noteUnavailable(err, 'receipts')
+          scheduleResubscribe('receipts', startReceiptsListener, err)
+        },
+      )
+    }
+
+    startReceiptsListener()
+
+    const receiptsWatchdogEveryMs = Math.max(60_000, Number(env('RECEIPTS_WATCHDOG_EVERY_MS', '180000')) || 180_000)
+    setInterval(() => {
+      if (!lastReceiptsSnapshotAtMs) return
+      const idleMs = Date.now() - lastReceiptsSnapshotAtMs
+      if (idleMs >= receiptsWatchdogEveryMs) {
+        console.error(`[print-bridge] Receipts listener idle for ${idleMs}ms; forcing PM2 restart`)
+        setTimeout(() => process.exit(1), 250)
+      }
+    }, Math.min(60_000, receiptsWatchdogEveryMs))
   } else {
     console.log('[print-bridge] Receipt printing disabled (PRINT_RECEIPT_ON_PAID=0)')
   }
 
   const qOpenTabs = query(collection(db, 'tabs'), where('status', '==', 'open'))
   console.log('[print-bridge] Subscribing bills (tabs status==open)…')
-  unsubBills = onSnapshot(
-    qOpenTabs,
-    async (snap) => {
+  let lastBillsSnapshotAtMs = 0
+  const startBillsListener = () => {
+    try {
+      if (typeof unsubBills === 'function') unsubBills()
+    } catch {
+      // ignore
+    }
+    unsubBills = onSnapshot(
+      qOpenTabs,
+      async (snap) => {
+        markListenerOk('bills')
+        lastBillsSnapshotAtMs = Date.now()
       const changes = snap.docChanges()
       if (changes.length) {
         console.log(
@@ -1059,18 +1150,50 @@ async function main() {
       // contains multiple changes for the same tab.
     },
     (err) => {
-      console.error('[print-bridge] Bills snapshot error', err)
+      console.error('[print-bridge] Snapshot error (bills)', err)
       noteUnavailable(err, 'bills')
+      scheduleResubscribe('bills', startBillsListener, err)
     },
   )
+}
+
+  startBillsListener()
+
+  const ordersWatchdogEveryMs = Math.max(60_000, Number(env('ORDERS_WATCHDOG_EVERY_MS', '180000')) || 180_000)
+  setInterval(() => {
+    if (!lastOrdersSnapshotAtMs) return
+    const idleMs = Date.now() - lastOrdersSnapshotAtMs
+    if (idleMs >= ordersWatchdogEveryMs) {
+      console.error(`[print-bridge] Orders listener idle for ${idleMs}ms; forcing PM2 restart`)
+      setTimeout(() => process.exit(1), 250)
+    }
+  }, Math.min(60_000, ordersWatchdogEveryMs))
+
+  const billsWatchdogEveryMs = Math.max(60_000, Number(env('BILLS_WATCHDOG_EVERY_MS', '240000')) || 240_000)
+  setInterval(() => {
+    if (!lastBillsSnapshotAtMs) return
+    const idleMs = Date.now() - lastBillsSnapshotAtMs
+    if (idleMs >= billsWatchdogEveryMs) {
+      console.error(`[print-bridge] Bills listener idle for ${idleMs}ms; forcing PM2 restart`)
+      setTimeout(() => process.exit(1), 250)
+    }
+  }, Math.min(60_000, billsWatchdogEveryMs))
 
   const shutdown = () => {
-    console.log('\n[print-bridge] Cerrando…')
+    console.log('[print-bridge] Shutting down…')
     try {
       if (unsubOrders) unsubOrders()
       if (unsubReceipts) unsubReceipts()
       if (unsubBills) unsubBills()
       if (unsubCmd) unsubCmd()
+    } catch {
+      // ignore
+    }
+
+    try {
+      for (const st of listenerState.values()) {
+        if (st?.timer) clearTimeout(st.timer)
+      }
     } catch {
       // ignore
     }
@@ -1082,7 +1205,7 @@ async function main() {
     }
 
     void sendHeartbeat({ status: 'offline', stoppedAt: serverTimestamp() })
-    process.exit(0)
+    setTimeout(() => process.exit(0), 200)
   }
 
   process.on('SIGINT', shutdown)
