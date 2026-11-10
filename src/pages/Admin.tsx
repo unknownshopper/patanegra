@@ -2119,6 +2119,11 @@ export default function AdminPage() {
                   onClick={async () => {
                     const n = paidOrLegacyTabs.length
                     if (!n) return
+                    const pin = String(window.prompt('Ingresa el PIN para borrar las ventas:') ?? '')
+                    if (pin !== '1234') {
+                      window.alert('PIN incorrecto.')
+                      return
+                    }
                     const ok = window.confirm(`Esto borrará ${n} cuentas cerradas (ventas). ¿Continuar?`)
                     if (!ok) return
 
