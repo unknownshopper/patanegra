@@ -566,14 +566,15 @@ export default function AdminPage() {
   }, [])
 
   React.useEffect(() => {
-    const q = query(collection(db, 'orders'), where('status', '==', 'pending'), orderBy('createdAt', 'desc'))
+    const q = query(collection(db, 'orders'), where('status', '==', 'pending'))
     return onSnapshot(
       q,
       (snap) => {
         const data = snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) }))
         setOrders(data)
       },
-      () => {
+      (err) => {
+        console.error('orders pending listener error', err)
         setOrders([])
       },
     )
@@ -2060,7 +2061,7 @@ export default function AdminPage() {
                     await batch.commit()
                   }}
                 >
-                  Borrar pendientes
+                  {`Borrar pendientes (${pendingKitchen + pendingBar})`}
                 </button>
 
                 <div style={{ height: 8 }} />
