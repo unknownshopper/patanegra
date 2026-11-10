@@ -600,7 +600,26 @@ async function main() {
   const auth = getAuth(app)
   const db = initializeFirestore(app, { experimentalAutoDetectLongPolling: true })
 
-  await signInWithEmailAndPassword(auth, email, password)
+  const isTransientAuthError = (e) => {
+    const code = String(e?.code ?? '').toLowerCase()
+    return (
+      code.includes('quota-exceeded') ||
+      code.includes('too-many-requests') ||
+      code.includes('network-request-failed') ||
+      code.includes('internal-error')
+    )
+  }
+  for (let attempt = 1; ; attempt++) {
+    try {
+      await signInWithEmailAndPassword(auth, email, password)
+      break
+    } catch (e) {
+      if (!isTransientAuthError(e)) throw e
+      const delay = Math.min(120_000, 10_000 * attempt)
+      console.error(`[print-bridge] Auth sign-in transient error (attempt ${attempt}), retry in ${Math.round(delay / 1000)}s:`, String(e?.code ?? e))
+      await new Promise((r) => setTimeout(r, delay))
+    }
+  }
   console.log('[print-bridge] Auth OK:', auth.currentUser?.uid)
 
   const heartbeatRef = doc(db, 'ops', `bridge_${String(deviceName || 'device').replaceAll(/[^a-zA-Z0-9_-]/g, '_')}`)
