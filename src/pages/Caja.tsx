@@ -939,6 +939,8 @@ export default function CajaPage() {
 
   const isActiveStyle = React.useCallback(
     (active: boolean) => ({
+      background: active ? '#111827' : undefined,
+      color: active ? '#f9fafb' : undefined,
       borderColor: active ? '#111827' : '#e5e7eb',
       opacity: active ? 1 : 0.95,
     }),
