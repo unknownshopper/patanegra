@@ -459,7 +459,11 @@ function withEscPos(text) {
   const emphasizeCmd = Buffer.from([0x1b, 0x45, 0x01])
 
   const sizeByte = ((charHeight - 1) << 4) | (charWidth - 1)
-  const sizeCmd = sizeByte === 0 ? Buffer.alloc(0) : Buffer.from([0x1d, 0x21, sizeByte])
+  // GS ! n for standard ESC/POS; ESC ! n for clones that only honor the legacy
+  // print-mode byte (bit3 emphasized, bit4 double-height, bit5 double-width).
+  const escModeByte = 0x08 | (charHeight > 1 ? 0x10 : 0) | (charWidth > 1 ? 0x20 : 0)
+  const sizeCmd =
+    sizeByte === 0 ? Buffer.alloc(0) : Buffer.from([0x1d, 0x21, sizeByte, 0x1b, 0x21, escModeByte])
 
   const body = Buffer.from(normalized, encoding)
   const feeds = Buffer.from('\n\n\n', encoding)
