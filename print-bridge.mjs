@@ -522,9 +522,13 @@ async function printViaLp({ printer, text, dryRun }) {
     const deviceUri = await resolvePrinterDevice(printer)
     const sock = parseSocketUri(deviceUri)
     if (sock) {
-      console.log(`[print-bridge] socket -> ${printer} ${sock.host}:${sock.port} bytes=${payload.length}`)
-      await printViaSocket({ host: sock.host, port: sock.port, payload })
-      return
+      try {
+        console.log(`[print-bridge] socket -> ${printer} ${sock.host}:${sock.port} bytes=${payload.length}`)
+        await printViaSocket({ host: sock.host, port: sock.port, payload })
+        return
+      } catch (e) {
+        console.error(`[print-bridge] socket failed (${printer} ${sock.host}:${sock.port}), falling back to lp:`, String((e && e.message) || e))
+      }
     }
   }
 
