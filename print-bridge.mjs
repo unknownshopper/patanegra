@@ -445,6 +445,9 @@ function withEscPos(text) {
   const charSizeRaw = env('ESCPOS_CHAR_SIZE', '1')
   const charSizeN = Number(charSizeRaw)
   const charSize = Number.isFinite(charSizeN) ? Math.min(8, Math.max(1, Math.trunc(charSizeN))) : 1
+  const clampMag = (v) => (Number.isFinite(v) ? Math.min(8, Math.max(1, Math.trunc(v))) : charSize)
+  const charWidth = clampMag(Number(env('ESCPOS_CHAR_WIDTH', String(charSize))))
+  const charHeight = clampMag(Number(env('ESCPOS_CHAR_HEIGHT', String(charSize))))
   const init = Buffer.from([0x1b, 0x40])
 
   const escposCodepageRaw = String(env('ESCPOS_CODEPAGE', '') ?? '').trim()
@@ -453,13 +456,14 @@ function withEscPos(text) {
     ? Buffer.from([0x1b, 0x74, Number(escposCodepage) & 0xff])
     : Buffer.alloc(0)
 
-  const emphasizeCmd = charSize === 1 ? Buffer.from([0x1b, 0x45, 0x01]) : Buffer.alloc(0)
+  const emphasizeCmd = Buffer.from([0x1b, 0x45, 0x01])
 
-  const sizeCmd = charSize === 1 ? Buffer.alloc(0) : Buffer.from([0x1d, 0x21, ((charSize - 1) << 4) | (charSize - 1)])
+  const sizeByte = ((charHeight - 1) << 4) | (charWidth - 1)
+  const sizeCmd = sizeByte === 0 ? Buffer.alloc(0) : Buffer.from([0x1d, 0x21, sizeByte])
 
   const body = Buffer.from(normalized, encoding)
   const feeds = Buffer.from('\n\n\n', encoding)
-  const emphasizeOffCmd = charSize === 1 ? Buffer.from([0x1b, 0x45, 0x00]) : Buffer.alloc(0)
+  const emphasizeOffCmd = Buffer.from([0x1b, 0x45, 0x00])
   // Use a cut command variant without NUL bytes to avoid issues with some pipelines.
   // GS V 1  (partial cut) is commonly supported.
   const cutCmd = cut ? Buffer.from([0x1d, 0x56, 0x01]) : Buffer.alloc(0)
