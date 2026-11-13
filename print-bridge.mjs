@@ -503,6 +503,8 @@ async function printViaLp({ printer, text, dryRun }) {
   }
 
   const useRaw = env('LP_RAW', '1') === '1'
+  const startedAt = Date.now()
+  const elapsedMs = () => Date.now() - startedAt
   const payload = withEscPos(text)
 
   const preferSocket = env('PRINT_VIA_SOCKET', '1') === '1'
@@ -513,9 +515,10 @@ async function printViaLp({ printer, text, dryRun }) {
       try {
         console.log(`[print-bridge] socket -> ${printer} ${sock.host}:${sock.port} bytes=${payload.length}`)
         await printViaSocket({ host: sock.host, port: sock.port, payload })
+        console.log(`[print-bridge] socket ok ${printer} in ${elapsedMs()}ms`)
         return
       } catch (e) {
-        console.error(`[print-bridge] socket failed (${printer} ${sock.host}:${sock.port}), falling back to lp:`, String((e && e.message) || e))
+        console.error(`[print-bridge] socket failed (${printer} ${sock.host}:${sock.port}) in ${elapsedMs()}ms, falling back to lp:`, String((e && e.message) || e))
       }
     }
   }
@@ -532,6 +535,7 @@ async function printViaLp({ printer, text, dryRun }) {
   const err = String(stderr ?? '').trim()
   if (out) console.log(`[print-bridge] lp stdout (${printer}):`, out)
   if (err) console.log(`[print-bridge] lp stderr (${printer}):`, err)
+  console.log(`[print-bridge] lp done ${printer} in ${elapsedMs()}ms`)
 }
 
 async function main() {
@@ -783,6 +787,18 @@ async function main() {
               })
             } catch {
               // ignore
+            }
+            // Try to pull latest code before exiting so PM2 restarts on the new version.
+            try {
+              const repoDir = path.dirname(fileURLToPath(import.meta.url))
+              const { stdout } = await execFileAsync('git', ['pull', '--ff-only'], {
+                cwd: repoDir,
+                timeout: 30_000,
+                maxBuffer: 1024 * 1024,
+              })
+              console.log('[print-bridge] git pull:', String(stdout ?? '').trim())
+            } catch (e) {
+              console.error('[print-bridge] git pull failed (restarting anyway):', String((e && e.message) || e))
             }
             setTimeout(() => process.exit(0), 250)
           }
