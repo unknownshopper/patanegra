@@ -791,7 +791,7 @@ async function main() {
             // Try to pull latest code before exiting so PM2 restarts on the new version.
             try {
               const repoDir = path.dirname(fileURLToPath(import.meta.url))
-              const { stdout } = await execFileAsync('git', ['pull', '--ff-only'], {
+              const { stdout } = await execFileAsync('git', ['pull', '--ff-only', 'origin', 'main'], {
                 cwd: repoDir,
                 timeout: 30_000,
                 maxBuffer: 1024 * 1024,
