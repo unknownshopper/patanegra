@@ -358,19 +358,21 @@ async function tabFolioMaybe({ db, tabId }) {
 async function ticketText(order, { db }) {
   const area = String(order?.area ?? '').toLowerCase() === 'bar' ? 'BARRA' : 'COCINA'
   const createdAtMs = order?.createdAt?.toMillis ? order.createdAt.toMillis() : Date.now()
-  const time = formatClock(createdAtMs)
-  const mesa = tableLabel(String(order?.tableId ?? ''))
+  const mesa = tableLabel(String(order?.tableId ?? '')).replace('#', '')
   const tableId = String(order?.tableId ?? '')
   const tabId = String(order?.tabId ?? '')
-  const cuenta = cuentaShort(tabId)
-  const folio = tabId ? await ensureTabFolio({ db, tabId }) : await tabFolioMaybe({ db, tabId })
+  if (tabId) await ensureTabFolio({ db, tabId })
   const by = String(order?.createdByName ?? '').trim()
+
+  const fd = new Date(createdAtMs)
+  const p2 = (n) => String(n).padStart(2, '0')
+  const folioStamp = `${String(fd.getFullYear()).slice(-2)}${p2(fd.getMonth() + 1)}${p2(fd.getDate())}-${p2(fd.getHours())}:${p2(fd.getMinutes())}:${p2(fd.getSeconds())}`
 
   const lines = []
   lines.push('PATANEGRA')
   lines.push(area)
   lines.push('--------------------------------')
-  lines.push(`${mesa}${time ? ` · ${time}` : ''}`)
+  lines.push(mesa)
   {
     const label = String(order?.tableLabel ?? '').trim()
     const isTakeout = String(tableId).startsWith('togo-')
@@ -378,8 +380,7 @@ async function ticketText(order, { db }) {
     if ((isTakeout || isReport) && label && label !== tableId) lines.push(label)
   }
   if (by) lines.push(`Mesero: ${by}`)
-  if (folio) lines.push(`Folio: ${folio}`)
-  else if (cuenta) lines.push(`Cuenta: ${cuenta}`)
+  lines.push(`Folio: ${folioStamp}`)
   lines.push('--------------------------------')
 
   const items = Array.isArray(order?.items) ? order.items : []
@@ -800,7 +801,15 @@ async function main() {
             } catch (e) {
               console.error('[print-bridge] git pull failed (restarting anyway):', String((e && e.message) || e))
             }
-            setTimeout(() => process.exit(0), 250)
+            const tryExit = () => {
+              if (inFlightOrders.size || inFlightReceipts.size || inFlightBills.size) {
+                console.log('[print-bridge] Restart delayed: prints in flight')
+                setTimeout(tryExit, 1000)
+                return
+              }
+              process.exit(0)
+            }
+            setTimeout(tryExit, 250)
           }
         } catch (e) {
           console.log('[print-bridge] Command handler error:', String((e && e.message) || e || 'cmd error'))
