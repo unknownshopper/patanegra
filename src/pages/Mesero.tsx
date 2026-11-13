@@ -67,6 +67,7 @@ export default function MeseroPage() {
   const [tabs, setTabs] = React.useState<any[]>([])
   const [orders, setOrders] = React.useState<Order[]>([])
   const [expandedTableId, setExpandedTableId] = React.useState<string | null>(null)
+  const testPrintBusyRef = React.useRef(false)
 
   const view = ((): 'menu' | 'pendientes' => {
     const v = String(searchParams.get('v') ?? '').toLowerCase().trim()
@@ -425,8 +426,10 @@ export default function MeseroPage() {
               <button
                 className="button secondary"
                 onClick={async () => {
+                  if (testPrintBusyRef.current) return
                   const ok = window.confirm('Esto mandará 2 tickets de prueba (Cocina y Barra). ¿Continuar?')
                   if (!ok) return
+                  testPrintBusyRef.current = true
 
                   const testId = `togo-test-${String(Date.now()).slice(-6)}`
                   const byName = user?.displayName ?? user?.email ?? null
@@ -500,7 +503,11 @@ export default function MeseroPage() {
                   const batch = writeBatch(db)
                   batch.set(kitchenOrderRef, kitchenPayload as any)
                   batch.set(barOrderRef, barPayload as any)
-                  await batch.commit()
+                  try {
+                    await batch.commit()
+                  } finally {
+                    testPrintBusyRef.current = false
+                  }
                 }}
               >
                 Impresión de prueba

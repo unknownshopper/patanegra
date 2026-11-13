@@ -497,6 +497,15 @@ a {
   backdrop-filter: blur(6px);
 }
 
+.callMessage.ok {
+  padding: 10px 16px;
+  background: #16a34a;
+  border-color: rgba(0, 0, 0, 0.15);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 900;
+}
+
 @keyframes fabFloat {
   0% {
     transform: translateY(0);

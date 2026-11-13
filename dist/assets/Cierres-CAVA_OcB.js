@@ -1,4 +1,4 @@
-import{c as E,R as o,q as I,d as D,e as L,f as A,m as Y,g as F,j as e}from"./main-Gfe8NcML.js";function i(t){return new Intl.NumberFormat("es-MX",{style:"currency",currency:"MXN"}).format(Number(t)||0)}function H({title:t,body:l}){return`<!doctype html>
+import{c as E,R as o,q as I,d as D,e as L,f as A,m as Y,g as F,j as e}from"./main-7mGghUtJ.js";function i(t){return new Intl.NumberFormat("es-MX",{style:"currency",currency:"MXN"}).format(Number(t)||0)}function H({title:t,body:l}){return`<!doctype html>
 <html lang="es">
 <head>
   <meta charset="utf-8" />

@@ -159,6 +159,7 @@ export default function CajaPage() {
   const [waiterCallTop, setWaiterCallTop] = React.useState<any | null>(null)
   const [waiterCallOpen, setWaiterCallOpen] = React.useState(false)
   const lastWaiterCallIdRef = React.useRef<string>('')
+  const testPrintBusyRef = React.useRef(false)
 
   const moveTabToTable = React.useCallback(
     async (t: Tab, targetTableId: string, opts?: { silent?: boolean }) => {
@@ -1626,8 +1627,10 @@ export default function CajaPage() {
             <button
               className="button secondary"
               onClick={async () => {
+                if (testPrintBusyRef.current) return
                 const ok = window.confirm('Esto mandará 2 tickets de prueba (Cocina y Barra). ¿Continuar?')
                 if (!ok) return
+                testPrintBusyRef.current = true
 
                 const testId = `togo-test-${String(Date.now()).slice(-6)}`
                 const byName = user?.displayName ?? user?.email ?? null
@@ -1701,7 +1704,11 @@ export default function CajaPage() {
                 const batch = writeBatch(db)
                 batch.set(kitchenOrderRef, kitchenPayload as any)
                 batch.set(barOrderRef, barPayload as any)
-                await batch.commit()
+                try {
+                  await batch.commit()
+                } finally {
+                  testPrintBusyRef.current = false
+                }
               }}
             >
               Impresión de prueba

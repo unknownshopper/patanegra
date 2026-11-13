@@ -336,6 +336,7 @@ export default function AdminPage() {
 
   const [closingBusy, setClosingBusy] = React.useState(false)
   const [closingMsg, setClosingMsg] = React.useState<string | null>(null)
+  const testPrintBusyRef = React.useRef(false)
 
   React.useEffect(() => {
     const title = 'Patanegra · Admin'
@@ -1959,8 +1960,10 @@ export default function AdminPage() {
                 <button
                   className="button secondary"
                   onClick={async () => {
+                    if (testPrintBusyRef.current) return
                     const ok = window.confirm('Esto mandará 2 tickets de prueba (Cocina y Barra). ¿Continuar?')
                     if (!ok) return
+                    testPrintBusyRef.current = true
 
                     const testId = `togo-test-${String(Date.now()).slice(-6)}`
                     const byName = user?.displayName ?? user?.email ?? null
@@ -2031,7 +2034,11 @@ export default function AdminPage() {
                     const batch = writeBatch(db)
                     batch.set(kitchenOrderRef, kitchenPayload as any)
                     batch.set(barOrderRef, barPayload as any)
-                    await batch.commit()
+                    try {
+                      await batch.commit()
+                    } finally {
+                      testPrintBusyRef.current = false
+                    }
                   }}
                 >
                   Impresión de prueba

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import {
   addDoc,
@@ -141,6 +141,7 @@ export default function MenuPublicoPage() {
   const [fatalErr, setFatalErr] = useState<string | null>(null)
   const [callBusy, setCallBusy] = useState(false)
   const [callMessage, setCallMessage] = useState<string | null>(null)
+  const [callMessageOk, setCallMessageOk] = useState(false)
   const [openTakeoutTabs, setOpenTakeoutTabs] = useState<any[]>([])
   const [menuExtras, setMenuExtras] = useState<any[]>([])
   const [qtyByItemId, setQtyByItemId] = useState<Record<string, number>>({})
@@ -160,6 +161,7 @@ export default function MenuPublicoPage() {
   >([])
   const [cartOpen, setCartOpen] = useState(false)
   const [sendBusy, setSendBusy] = useState(false)
+  const sendBusyRef = useRef(false)
   const [sendMsg, setSendMsg] = useState<string | null>(null)
   const [cartTableId, setCartTableId] = useState<string>('')
   const [takeoutName, setTakeoutName] = useState<string>('')
@@ -355,6 +357,11 @@ export default function MenuPublicoPage() {
   const clearSelection = React.useCallback(() => {
     setQtyByItemId({})
     setSelectionCfgByInstanceId({})
+  }, [])
+
+  const showCallMessage = React.useCallback((msg: string | null, ok = false) => {
+    setCallMessage(msg)
+    setCallMessageOk(ok)
   }, [])
 
   const EXTRAS_GROUPS_FOOD: Array<{ label: string; items: Array<{ name: string; unitPrice: number }> }> = React.useMemo(() => {
@@ -1107,16 +1114,16 @@ export default function MenuPublicoPage() {
         }}
       >
         <div style={{ maxWidth: 980, margin: '0 auto', display: 'grid', gap: 8, justifyItems: 'center' }}>
-          {callMessage ? <div className="callMessage">{callMessage}</div> : null}
+          {callMessage ? <div className={`callMessage${callMessageOk ? ' ok' : ''}`}>{callMessage}</div> : null}
           {!isStaff ? (
             <button
               className="callWaiterFab"
               disabled={callBusy}
               style={{ pointerEvents: 'auto' }}
               onClick={async () => {
-                setCallMessage(null)
+                showCallMessage(null)
                 if (!tableId) {
-                  setCallMessage('Selecciona una mesa válida (NFC).')
+                  showCallMessage('Selecciona una mesa válida (NFC).')
                   return
                 }
 
@@ -1126,7 +1133,7 @@ export default function MenuPublicoPage() {
                 const cooldownMs = 60_000
                 if (now - last < cooldownMs) {
                   const s = Math.ceil((cooldownMs - (now - last)) / 1000)
-                  setCallMessage(`Ya avisamos. Intenta de nuevo en ${s}s.`)
+                  showCallMessage(`Ya avisamos. Intenta de nuevo en ${s}s.`)
                   return
                 }
 
@@ -1138,9 +1145,9 @@ export default function MenuPublicoPage() {
                     createdAt: serverTimestamp(),
                   })
                   localStorage.setItem(key, String(Date.now()))
-                  setCallMessage('Listo. Un mesero va en camino.')
+                  showCallMessage('Listo. Un mesero va en camino.', true)
                 } catch {
-                  setCallMessage('No se pudo enviar el llamado. Intenta de nuevo.')
+                  showCallMessage('No se pudo enviar el llamado. Intenta de nuevo.')
                 } finally {
                   setCallBusy(false)
                 }
@@ -1519,6 +1526,7 @@ export default function MenuPublicoPage() {
               className="button"
               disabled={sendBusy || (cartLines.length === 0 && selectionInstances.length === 0)}
               onClick={async () => {
+                if (sendBusyRef.current) return
                 setSendMsg(null)
                 const chosen = (cartTableId ?? '').trim()
                 if (!chosen) {
@@ -1579,6 +1587,8 @@ export default function MenuPublicoPage() {
                 const orderDeltaWithExtras = Math.round((orderDelta + boxTotal + extrasTotalAll) * 100) / 100
 
                 setSendBusy(true)
+                sendBusyRef.current = true
+                let sentOk = false
                 try {
                   let effectiveTableId = chosen
                   let effectiveTableLabel = tableLabelById[chosen] ?? takeoutLabelById[chosen] ?? chosen
@@ -1752,11 +1762,12 @@ export default function MenuPublicoPage() {
                     await updateDoc(doc(db, 'tabs', tabId), { total: nextTotal, updatedAt: serverTimestamp() })
                   }
 
+                  sentOk = true
                   setCartLines([])
                   clearSelection()
                   setCartOpen(false)
-                  setCallMessage('Orden agregada con éxito.')
-                  window.setTimeout(() => setCallMessage(null), 2500)
+                  showCallMessage('Orden creada exitosamente.', true)
+                  window.setTimeout(() => showCallMessage(null), 4000)
                 } catch (e: any) {
                   const msg = String(e?.message ?? '')
                   if (msg.toLowerCase().includes('index')) {
@@ -1768,6 +1779,13 @@ export default function MenuPublicoPage() {
                   }
                 } finally {
                   setSendBusy(false)
+                  if (sentOk) {
+                    window.setTimeout(() => {
+                      sendBusyRef.current = false
+                    }, 2000)
+                  } else {
+                    sendBusyRef.current = false
+                  }
                 }
               }}
             >
