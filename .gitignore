@@ -67,3 +67,7 @@ node_modules/
 
 # dataconnect generated files
 .dataconnect
+
+# Service account keys (Firebase admin)
+service-account*.json
+*serviceAccount*.json

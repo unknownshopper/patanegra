@@ -1,3 +1,4 @@
+import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import net from 'node:net'
@@ -6,7 +7,7 @@ import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 
 import { initializeApp } from 'firebase/app'
-import { getAuth, signInWithEmailAndPassword } from 'firebase/auth'
+import { getAuth, signInWithCustomToken, signInWithEmailAndPassword } from 'firebase/auth'
 import {
   collection,
   doc,
@@ -553,6 +554,8 @@ async function main() {
 
   const email = env('PRINT_BRIDGE_EMAIL')
   const password = env('PRINT_BRIDGE_PASSWORD')
+  const saJsonPath = env('PRINT_BRIDGE_SA_JSON')
+  const saUid = env('PRINT_BRIDGE_UID')
 
   const printerDefault = env('PRINTER_DEFAULT')
   const printerKitchen = env('PRINTER_KITCHEN')
@@ -568,7 +571,9 @@ async function main() {
 
   if (!firebaseConfig.projectId) throw new Error('Falta VITE_FIREBASE_PROJECT_ID en env / .env')
   if (!firebaseConfig.apiKey) throw new Error('Falta VITE_FIREBASE_API_KEY en env / .env')
-  if (!email || !password) throw new Error('Falta PRINT_BRIDGE_EMAIL o PRINT_BRIDGE_PASSWORD (usuario de Firebase)')
+  if ((!email || !password) && !(saJsonPath && saUid)) {
+    throw new Error('Falta PRINT_BRIDGE_EMAIL/PASSWORD o PRINT_BRIDGE_SA_JSON/PRINT_BRIDGE_UID')
+  }
 
   const outPrinters = {
     kitchen: printerKitchen || printerDefault,
@@ -593,6 +598,33 @@ async function main() {
   const auth = getAuth(app)
   const db = initializeFirestore(app, { experimentalAutoDetectLongPolling: true })
 
+  // Optional service-account sign-in: mint a custom JWT (RS256) so the bridge can
+  // authenticate via signInWithCustomToken when password verification is rate-limited.
+  let customToken = null
+  if (saJsonPath && saUid) {
+    try {
+      const repoDir = path.dirname(fileURLToPath(import.meta.url))
+      const sa = JSON.parse(fs.readFileSync(path.resolve(repoDir, saJsonPath), 'utf8'))
+      const now = Math.floor(Date.now() / 1000)
+      const b64 = (o) => Buffer.from(JSON.stringify(o)).toString('base64url')
+      const unsigned =
+        `${b64({ alg: 'RS256', typ: 'JWT' })}.` +
+        b64({
+          iss: sa.client_email,
+          sub: sa.client_email,
+          aud: 'https://identitytoolkit.googleapis.com/google.identity.identitytoolkit.v1.IdentityToolkit',
+          iat: now,
+          exp: now + 3600,
+          uid: saUid,
+        })
+      const sig = crypto.createSign('RSA-SHA256').update(unsigned).sign(sa.private_key, 'base64url')
+      customToken = `${unsigned}.${sig}`
+      console.log('[print-bridge] Service account auth enabled (uid:', saUid + ')')
+    } catch (e) {
+      console.error('[print-bridge] Service account load failed, falling back to email/password:', String((e && e.message) || e))
+    }
+  }
+
   const isTransientAuthError = (e) => {
     const code = String(e?.code ?? '').toLowerCase()
     return (
@@ -604,7 +636,11 @@ async function main() {
   }
   for (let attempt = 1; ; attempt++) {
     try {
-      await signInWithEmailAndPassword(auth, email, password)
+      if (customToken) {
+        await signInWithCustomToken(auth, customToken)
+      } else {
+        await signInWithEmailAndPassword(auth, email, password)
+      }
       break
     } catch (e) {
       if (!isTransientAuthError(e)) throw e
