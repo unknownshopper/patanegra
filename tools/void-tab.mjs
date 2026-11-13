@@ -1,9 +1,10 @@
+import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import { initializeApp } from 'firebase/app'
-import { getAuth, signInWithEmailAndPassword } from 'firebase/auth'
+import { getAuth, signInWithCustomToken, signInWithEmailAndPassword } from 'firebase/auth'
 import {
   collection,
   deleteDoc,
@@ -84,15 +85,44 @@ async function main() {
     appId: env('VITE_FIREBASE_APP_ID'),
   }
 
+  const saJsonPath = env('PRINT_BRIDGE_SA_JSON')
+  const saUid = env('PRINT_BRIDGE_UID')
   const email = env('CLEANUP_EMAIL') || env('PRINT_BRIDGE_EMAIL')
   const password = env('CLEANUP_PASSWORD') || env('PRINT_BRIDGE_PASSWORD')
-  if (!email || !password) throw new Error('Missing CLEANUP_EMAIL/CLEANUP_PASSWORD (or PRINT_BRIDGE_EMAIL/PRINT_BRIDGE_PASSWORD)')
+  if ((!email || !password) && !(saJsonPath && saUid)) {
+    throw new Error('Missing CLEANUP_EMAIL/CLEANUP_PASSWORD (or PRINT_BRIDGE_EMAIL/PRINT_BRIDGE_PASSWORD or SA vars)')
+  }
 
   const app = initializeApp(firebaseConfig)
   const auth = getAuth(app)
   const db = initializeFirestore(app, { experimentalAutoDetectLongPolling: true })
 
-  await signInWithEmailAndPassword(auth, email, password)
+  if (saJsonPath && saUid) {
+    const repoDir = path.dirname(fileURLToPath(import.meta.url))
+    const saCandidates = [
+      path.resolve(process.cwd(), saJsonPath),
+      path.resolve(repoDir, '..', saJsonPath),
+      path.resolve(repoDir, saJsonPath),
+    ]
+    const saFile = saCandidates.find((p) => fs.existsSync(p)) ?? saCandidates[0]
+    const sa = JSON.parse(fs.readFileSync(saFile, 'utf8'))
+    const now = Math.floor(Date.now() / 1000)
+    const b64 = (o) => Buffer.from(JSON.stringify(o)).toString('base64url')
+    const unsigned =
+      `${b64({ alg: 'RS256', typ: 'JWT' })}.` +
+      b64({
+        iss: sa.client_email,
+        sub: sa.client_email,
+        aud: 'https://identitytoolkit.googleapis.com/google.identity.identitytoolkit.v1.IdentityToolkit',
+        iat: now,
+        exp: now + 3600,
+        uid: saUid,
+      })
+    const sig = crypto.createSign('RSA-SHA256').update(unsigned).sign(sa.private_key, 'base64url')
+    await signInWithCustomToken(auth, `${unsigned}.${sig}`)
+  } else {
+    await signInWithEmailAndPassword(auth, email, password)
+  }
   const uid = auth.currentUser?.uid ?? null
   console.log('[void] Auth OK:', uid)
 
