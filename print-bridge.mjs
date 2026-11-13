@@ -772,14 +772,16 @@ async function main() {
             toMillisMaybe(data?.requestedAt) ??
             (Number.isFinite(Number(data?.requestedAtMs)) ? Number(data?.requestedAtMs) : null) ??
             0
+          const handledMs = Number.isFinite(Number(data?.handledAtMs)) ? Number(data.handledAtMs) : 0
           if (!action || !reqMs) return
-          if (reqMs <= lastCmdRequestedAtMs) return
+          if (reqMs <= lastCmdRequestedAtMs || reqMs <= handledMs) return
           lastCmdRequestedAtMs = reqMs
 
           if (action === 'restart') {
             console.log('[print-bridge] Command: restart requested')
             try {
               await updateDoc(cmdRef, {
+                action: '',
                 handledAt: serverTimestamp(),
                 handledAtMs: Date.now(),
                 handledByPid: process.pid,
