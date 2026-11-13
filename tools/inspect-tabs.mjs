@@ -113,7 +113,21 @@ async function main() {
       `   payment=${String(t.paymentStatus ?? '')} · total=${Number(t.total ?? 0)} · paidTotal=${Number(t.paidTotal ?? 0)}` +
         `${paid ? ` · paidAt ${fmt(paid)}` : ''}${t.isVoided ? ' · VOIDED' : ''}`,
     )
-    console.log(`   items: ${itemsSummary(t.items)}`)
+
+    const ordersSnap = await getDocs(query(collection(db, 'orders'), where('tabId', '==', t.id)))
+    const orders = ordersSnap.docs
+      .map((d) => ({ id: d.id, ...d.data() }))
+      .sort((a, b) => (toMillisMaybe(a?.createdAt) ?? 0) - (toMillisMaybe(b?.createdAt) ?? 0))
+    console.log(`   orders linked: ${orders.length}`)
+    for (const o of orders) {
+      const created = toMillisMaybe(o?.createdAt)
+      console.log(
+        `   - order ${o.id} · ${created ? fmt(created) : '?'} · ${String(o.area ?? '')} · ` +
+          `${String(o.status ?? '')} · ${itemsSummary(o.items)}`,
+      )
+    }
+    const directItems = itemsSummary(t.items)
+    if (directItems) console.log(`   items: ${directItems}`)
   }
 }
 
